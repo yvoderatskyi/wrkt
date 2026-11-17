@@ -1194,7 +1194,7 @@ mod sync {
         );
         assert!(run.line_for("web").contains("rebased"), "{run}");
         let rebase_head = sandbox.git(&api, &["rev-parse", "--verify", "REBASE_HEAD"]);
-        assert!(!rebase_head.is_empty());
+        assert_ne!(rebase_head, "");
         assert_eq!(sandbox.git(&web, &["rev-parse", "HEAD"]), colleague);
     }
 

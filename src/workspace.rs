@@ -232,7 +232,7 @@ impl RepoNames {
             .into_iter()
             .map(|child| registry.owner_of(&workspace.join(child)))
             .filter_map(Result::transpose)
-            .map(|owner| owner.cloned())
+            .map(Result::<&RepoName, Error>::cloned)
             .collect::<Result<_>>()?;
         Ok(RepoNames(names))
     }

@@ -186,7 +186,10 @@ fn run_repo(command: RepoCommand) -> Result<()> {
     let mut config = Config::load()?;
     match command {
         RepoCommand::Add { path, name } => add_repo(&mut config, &path, name),
-        RepoCommand::List => list_repos(&config),
+        RepoCommand::List => {
+            list_repos(&config);
+            Ok(())
+        }
         RepoCommand::Rm { name } => remove_repo(&mut config, &name),
     }
 }
@@ -201,9 +204,8 @@ fn add_repo(config: &mut Config, path: &Path, name: Option<RepoName>) -> Result<
     Ok(())
 }
 
-fn list_repos(config: &Config) -> Result<()> {
+fn list_repos(config: &Config) {
     print!("{}", config.describe_repos());
-    Ok(())
 }
 
 fn remove_repo(config: &mut Config, name: &RepoName) -> Result<()> {
