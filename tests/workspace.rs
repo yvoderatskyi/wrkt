@@ -422,6 +422,29 @@ mod list {
     }
 
     #[test]
+    fn asks_git_once_per_folder_when_several_repos_registered() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-1", "web"]).success();
+        std::fs::create_dir(sandbox.workspace_root().join("PROJ-1/notes")).unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["-v", "list"]);
+
+        // Assert
+        let lookups = run
+            .success()
+            .stderr()
+            .lines()
+            .filter(|line| line.starts_with("$ git rev-parse") && line.contains("--show-toplevel"))
+            .count();
+        assert_eq!(lookups, 2, "{run}");
+    }
+
+    #[test]
     fn shows_nothing_when_workspace_root_missing() {
         // Arrange
         let sandbox = Sandbox::new();

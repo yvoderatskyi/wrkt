@@ -71,9 +71,8 @@ impl ClonePath {
         directory.parse()
     }
 
-    fn owns_worktree(&self, path: &Path) -> Result<bool> {
-        let common_directory = git::common_directory_of_top_level(path)?;
-        Ok(common_directory == Some(self.0.join(".git")))
+    fn shares_common_directory(&self, common_directory: &Path) -> bool {
+        self.0.join(".git") == common_directory
     }
 
     fn fetch(&self) -> Result<()> {
@@ -144,11 +143,15 @@ impl Registry {
     }
 
     pub fn owner_of(&self, worktree: &Path) -> Result<Option<&RepoName>> {
+        let common_directory = git::common_directory_of_top_level(worktree)?;
+        Ok(common_directory.and_then(|common_directory| self.sharing(&common_directory)))
+    }
+
+    fn sharing(&self, common_directory: &Path) -> Option<&RepoName> {
         self.0
             .iter()
-            .map(|(name, clone)| Ok(clone.owns_worktree(worktree)?.then_some(name)))
-            .find_map(Result::transpose)
-            .transpose()
+            .find(|(_, clone)| clone.shares_common_directory(common_directory))
+            .map(|(name, _)| name)
     }
 
     pub fn remove(&mut self, name: &RepoName) -> Result<()> {
