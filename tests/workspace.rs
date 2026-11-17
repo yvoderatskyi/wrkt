@@ -1270,6 +1270,30 @@ mod sync {
     }
 
     #[test]
+    fn runs_git_in_c_locale_when_environment_translated() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        sandbox.probe_origin(&api);
+        let path = sandbox.path_with_probe();
+
+        // Act
+        let run = sandbox.wrkt_with(
+            &sandbox.home(),
+            &[
+                ("LANG", "de_DE.UTF-8"),
+                ("LC_ALL", "de_DE.UTF-8"),
+                ("PATH", &path),
+            ],
+            &["sync", "PROJ-123"],
+        );
+
+        // Assert
+        assert!(run.failure().stdout().contains("LC_ALL=C\n"), "{run}");
+    }
+
+    #[test]
     fn ignores_remote_branch_commits_when_local_branch_behind_remote() {
         // Arrange
         let sandbox = Sandbox::new();

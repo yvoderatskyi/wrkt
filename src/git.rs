@@ -36,6 +36,7 @@ fn execute<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> 
         .args(arguments)
         .current_dir(directory)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("LC_ALL", "C")
         .output()
         .with_context(|| format!("running git {}", describe(arguments)))?;
     echo(directory, arguments, &output);
