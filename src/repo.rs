@@ -134,6 +134,15 @@ impl Registry {
         Ok(Clones(selected))
     }
 
+    pub fn is_registered(&self, name: &str) -> bool {
+        name.parse::<RepoName>()
+            .is_ok_and(|name| self.0.contains_key(&name))
+    }
+
+    pub fn owns(&self, worktree: &Path) -> Result<bool> {
+        Ok(self.owner_of(worktree)?.is_some())
+    }
+
     pub fn owner_of(&self, worktree: &Path) -> Result<Option<&RepoName>> {
         self.0
             .iter()
@@ -169,6 +178,17 @@ impl<'registry> Clones<'registry> {
                 .fetch()
                 .with_context(|| format!("fetching Repo '{name}'"))
         })
+    }
+
+    pub fn ensure_absent_from(&self, directory: &Path) -> Result<()> {
+        let present = self.0.keys().find(|name| directory.join(name).exists());
+        let Some(name) = present else {
+            return Ok(());
+        };
+        bail!(
+            "Repo '{name}' is already in Workspace {}",
+            directory.display()
+        )
     }
 
     pub fn add_worktrees(

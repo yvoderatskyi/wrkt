@@ -100,6 +100,14 @@ pub fn is_valid_branch_name(name: &str) -> Result<bool> {
     Ok(matches!(output, GitOutput::Succeeded(_)))
 }
 
+pub fn current_branch(worktree: &Path) -> Result<Option<String>> {
+    let GitOutput::Succeeded(stdout) = run(worktree, &["branch", "--show-current"])? else {
+        bail!("git branch --show-current failed in {}", worktree.display());
+    };
+    let branch = stdout.trim();
+    Ok((!branch.is_empty()).then(|| branch.to_string()))
+}
+
 pub fn fetch(clone: &Path) -> Result<()> {
     run_checked(clone, &["fetch", "--prune", REMOTE])
 }

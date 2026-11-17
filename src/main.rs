@@ -42,6 +42,12 @@ enum Command {
         #[arg(long)]
         branch: Option<Branch>,
     },
+    /// Add Repos to an existing Workspace
+    Add {
+        /// Workspace name (defaults to the Workspace containing the current directory), then the Repos to add
+        #[arg(required = true, value_name = "[NAME] REPOS")]
+        arguments: Vec<String>,
+    },
     /// List every Workspace with its Repos
     List,
     /// Print the Workspace a command would act on
@@ -87,6 +93,7 @@ fn run(cli: Cli) -> Result<()> {
             repos,
             branch,
         } => new_workspace(&name, &repos, branch),
+        Command::Add { arguments } => extend_workspace(&arguments),
         Command::List => list_workspaces(),
         Command::Which { name } => print_workspace(name),
     }
@@ -104,6 +111,11 @@ fn list_workspaces() -> Result<()> {
 
 fn new_workspace(name: &WorkspaceName, repos: &[RepoName], branch: Option<Branch>) -> Result<()> {
     print!("{}", Config::load()?.create_workspace(name, repos, branch)?);
+    Ok(())
+}
+
+fn extend_workspace(arguments: &[String]) -> Result<()> {
+    print!("{}", Config::load()?.extend_workspace(arguments)?);
     Ok(())
 }
 

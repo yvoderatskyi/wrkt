@@ -52,9 +52,38 @@ impl Workspace {
             "Workspace {} already exists; use `wrkt add` to add Repos to it",
             self.directory.display()
         );
+        self.extend(clones)
+    }
+
+    pub fn existing(
+        directory: PathBuf,
+        registry: &Registry,
+        fallback: impl FnOnce() -> Result<Branch>,
+    ) -> Result<Self> {
+        let branch = branch_of_members(&directory, registry)?.map_or_else(fallback, Ok)?;
+        Ok(Workspace::new(directory, branch))
+    }
+
+    pub fn extend<'registry>(&self, clones: &Clones<'registry>) -> Result<Resolutions<'registry>> {
+        clones.ensure_absent_from(&self.directory)?;
         clones.fetch()?;
         clones.add_worktrees(&self.directory, &self.branch)
     }
+}
+
+fn branch_of_members(directory: &Path, registry: &Registry) -> Result<Option<Branch>> {
+    subdirectories(directory)?
+        .into_iter()
+        .map(|child| member_branch(&directory.join(child), registry))
+        .find_map(Result::transpose)
+        .transpose()
+}
+
+fn member_branch(worktree: &Path, registry: &Registry) -> Result<Option<Branch>> {
+    if !registry.owns(worktree)? {
+        return Ok(None);
+    }
+    Branch::checked_out_in(worktree)
 }
 
 pub struct Workspaces(BTreeMap<WorkspaceName, RepoNames>);

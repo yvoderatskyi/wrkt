@@ -1,6 +1,7 @@
+use std::fmt;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
@@ -26,6 +27,19 @@ impl WorkspaceSettings {
         let directory = self.root.resolved()?.join(name);
         let branch = branch.map_or_else(|| self.branch_template.branch_for(name), Ok)?;
         Ok(Workspace::new(directory, branch))
+    }
+
+    fn existing(&self, name: &WorkspaceName, registry: &Registry) -> Result<Workspace> {
+        let root = self.root.resolved()?;
+        let directory = root.join(name);
+        ensure!(
+            directory.is_dir(),
+            "no Workspace named '{name}' under {}",
+            self.root
+        );
+        Workspace::existing(directory, registry, || {
+            self.branch_template.branch_for(name)
+        })
     }
 
     fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
@@ -70,6 +84,12 @@ fn not_inside_workspace(directory: &Path, root: &Path) -> String {
     )
 }
 
+impl fmt::Display for WorkspaceRoot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.display().fmt(formatter)
+    }
+}
+
 impl Default for WorkspaceRoot {
     fn default() -> Self {
         let home_or_working_directory = std::env::home_dir().unwrap_or_default();
@@ -91,6 +111,10 @@ impl Default for BranchTemplate {
     fn default() -> Self {
         BranchTemplate("{key}".to_string())
     }
+}
+
+fn parse_repo_names(arguments: &[String]) -> Result<Vec<RepoName>> {
+    arguments.iter().map(|argument| argument.parse()).collect()
 }
 
 fn config_path() -> Result<PathBuf> {
@@ -150,6 +174,24 @@ impl Config {
         let workspace = self.workspace.workspace(name, branch)?;
         let clones = self.repos.select(repos)?;
         workspace.create(&clones)
+    }
+
+    pub fn extend_workspace(&self, arguments: &[String]) -> Result<Resolutions<'_>> {
+        let (name, repos) = self.split_workspace_name(arguments)?;
+        let name = self.resolve_workspace(name)?;
+        let workspace = self.workspace.existing(&name, &self.repos)?;
+        workspace.extend(&self.repos.select(&repos)?)
+    }
+
+    fn split_workspace_name(
+        &self,
+        arguments: &[String],
+    ) -> Result<(Option<WorkspaceName>, Vec<RepoName>)> {
+        let (first, rest) = arguments.split_first().context("no Repo given")?;
+        if rest.is_empty() || self.repos.is_registered(first) {
+            return Ok((None, parse_repo_names(arguments)?));
+        }
+        Ok((Some(first.parse()?), parse_repo_names(rest)?))
     }
 
     pub fn resolve_workspace(&self, name: Option<WorkspaceName>) -> Result<WorkspaceName> {

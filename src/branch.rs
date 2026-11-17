@@ -9,6 +9,12 @@ use crate::git;
 #[derive(Debug, Clone)]
 pub struct Branch(String);
 
+impl Branch {
+    pub fn checked_out_in(worktree: &Path) -> Result<Option<Branch>> {
+        Ok(git::current_branch(worktree)?.map(Branch))
+    }
+}
+
 impl FromStr for Branch {
     type Err = Error;
 

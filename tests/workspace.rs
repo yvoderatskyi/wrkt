@@ -609,3 +609,230 @@ mod which {
         assert_eq!(run.success().stdout(), "PROJ-123\n");
     }
 }
+
+mod add {
+    use super::support::Sandbox;
+
+    #[test]
+    fn adds_worktree_on_workspace_branch_when_name_given() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let shared = sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        run.success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "PROJ-123"
+        );
+        assert_eq!(
+            sandbox.git(&worktree, &["rev-parse", "HEAD"]),
+            sandbox.git(&shared, &["rev-parse", "origin/main"])
+        );
+    }
+
+    #[test]
+    fn uses_branch_of_members_when_workspace_created_with_branch_flag() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox
+            .wrkt(&["new", "PROJ-123", "api", "--branch", "feature/custom"])
+            .success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        run.success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "feature/custom"
+        );
+    }
+
+    #[test]
+    fn reuses_local_branch_when_it_exists() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let shared = sandbox.registered_repo("shared");
+        let local_work = sandbox.commit_on_local_branch(&shared, "PROJ-123");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        assert!(
+            run.success()
+                .stdout()
+                .contains("reused local branch PROJ-123")
+        );
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), local_work);
+    }
+
+    #[test]
+    fn tracks_remote_branch_when_pushed_after_workspace_created() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let remote_work = sandbox.push_colleague_commit("shared", "PROJ-123");
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        assert!(run.success().stdout().contains("tracking origin/PROJ-123"));
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), remote_work);
+    }
+
+    #[test]
+    fn rejects_workspace_when_missing() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-999", "shared"]);
+
+        // Assert
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("no Workspace named 'PROJ-999'")
+        );
+        assert!(!sandbox.workspace_root().join("PROJ-999").exists());
+    }
+
+    #[test]
+    fn rejects_repo_when_not_registered() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("no Repo named 'shared' is registered")
+        );
+        assert!(!sandbox.workspace_root().join("PROJ-123/shared").exists());
+    }
+
+    #[test]
+    fn rejects_repo_when_already_member() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        sandbox.break_origin(&api);
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "api"]);
+
+        // Assert
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("Repo 'api' is already in Workspace")
+        );
+    }
+
+    #[test]
+    fn infers_workspace_when_name_omitted_inside_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let inside = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&inside, &["add", "shared"]);
+
+        // Assert
+        run.success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "PROJ-123"
+        );
+    }
+
+    #[test]
+    fn adds_every_repo_when_name_omitted_and_several_repos_given() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let inside = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&inside, &["add", "shared", "web"]);
+
+        // Assert
+        run.success();
+        let branches: Vec<_> = ["shared", "web"]
+            .map(|repo| sandbox.workspace_root().join("PROJ-123").join(repo))
+            .iter()
+            .map(|worktree| sandbox.git(worktree, &["branch", "--show-current"]))
+            .collect();
+        assert_eq!(branches, ["PROJ-123", "PROJ-123"]);
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_outside_workspace_root() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "shared"]);
+
+        // Assert
+        assert!(run.failure().stderr().contains("pass a Workspace name"));
+    }
+
+    #[test]
+    fn uses_template_branch_when_no_member_is_on_a_branch() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.write_config("branch_template = \"feature/{key}\"\n");
+        sandbox.registered_repo("shared");
+        std::fs::create_dir_all(sandbox.workspace_root().join("PROJ-123")).unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123", "shared"]);
+
+        // Assert
+        run.success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/shared");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "feature/PROJ-123"
+        );
+    }
+}
