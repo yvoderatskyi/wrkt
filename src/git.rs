@@ -220,6 +220,18 @@ fn add_worktree(clone: &Path, options: &[&str], worktree: &Path, start: &str) ->
     run_checked(clone, &arguments)
 }
 
+pub fn worktree_holding(clone: &Path, branch: &str) -> Result<Option<PathBuf>> {
+    let stdout = run_reading(clone, &["worktree", "list", "--porcelain"])?;
+    let checkout = format!("branch refs/heads/{branch}");
+    let worktree = stdout
+        .split("\n\n")
+        .find(|entry| entry.lines().any(|line| line == checkout))
+        .and_then(|entry| entry.lines().next())
+        .and_then(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from);
+    Ok(worktree)
+}
+
 pub fn contains_base(worktree: &Path) -> Result<bool> {
     let base = remote_reference(BASE_BRANCH);
     succeeds(worktree, &["merge-base", "--is-ancestor", &base, "HEAD"])

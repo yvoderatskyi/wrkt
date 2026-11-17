@@ -86,6 +86,16 @@ impl ClonePath {
         git::fetch(&self.0)
     }
 
+    fn ensure_branch_free(&self, branch: &Branch) -> Result<()> {
+        let Some(worktree) = git::worktree_holding(&self.0, branch.as_ref())? else {
+            return Ok(());
+        };
+        bail!(
+            "branch {branch} is already checked out at {}",
+            worktree.display()
+        )
+    }
+
     fn add_worktree(&self, worktree: &Path, branch: &Branch) -> Result<Resolution> {
         let resolution = self.resolve(branch)?;
         resolution.add_worktree(&self.0, worktree)?;
@@ -199,6 +209,14 @@ impl<'registry> Clones<'registry> {
             "Repo '{name}' is already in Workspace {}",
             directory.display()
         )
+    }
+
+    pub fn ensure_branch_free(&self, branch: &Branch) -> Result<()> {
+        self.0.iter().try_for_each(|(name, clone)| {
+            clone
+                .ensure_branch_free(branch)
+                .with_context(|| format!("adding a worktree for Repo '{name}'"))
+        })
     }
 
     pub fn add_worktrees(

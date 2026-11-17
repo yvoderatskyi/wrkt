@@ -80,6 +80,7 @@ impl Workspace {
 
     pub fn extend<'registry>(&self, clones: &Clones<'registry>) -> Result<Resolutions<'registry>> {
         clones.ensure_absent_from(&self.directory)?;
+        clones.ensure_branch_free(&self.branch)?;
         clones.fetch()?;
         clones.add_worktrees(&self.directory, &self.branch)
     }

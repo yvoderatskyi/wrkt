@@ -380,6 +380,23 @@ mod new {
     }
 
     #[test]
+    fn creates_nothing_when_a_later_repo_has_branch_checked_out_elsewhere() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        let web = sandbox.registered_repo("web");
+        sandbox.git(&web, &["switch", "-c", "PROJ-123"]);
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123", "api", "web"]);
+
+        // Assert
+        assert!(run.failure().stderr().contains("Repo 'web'"), "{run}");
+        assert!(!sandbox.workspace_root().join("PROJ-123").exists());
+        assert_eq!(sandbox.local_branch(&api, "PROJ-123"), "");
+    }
+
+    #[test]
     fn creates_nothing_when_a_later_repo_fails_to_fetch() {
         // Arrange
         let sandbox = Sandbox::new();
