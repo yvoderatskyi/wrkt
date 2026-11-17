@@ -1,5 +1,6 @@
 mod config;
 mod git;
+mod repo;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -9,6 +10,7 @@ use clap::{Parser, Subcommand};
 
 use config::Config;
 use git::CloneCheck;
+use repo::RepoName;
 
 #[derive(Parser)]
 #[command(
@@ -35,14 +37,14 @@ enum RepoCommand {
         path: PathBuf,
         /// Short name (defaults to the clone's directory name)
         #[arg(long)]
-        name: Option<String>,
+        name: Option<RepoName>,
     },
     /// List registered Repos
     List,
     /// Unregister a Repo
     Rm {
         /// Repo name
-        name: String,
+        name: RepoName,
     },
 }
 
@@ -67,7 +69,7 @@ fn repo(cmd: RepoCommand) -> Result<()> {
     let mut config = Config::load()?;
     match cmd {
         RepoCommand::Add { path, name } => {
-            let clone = match git::check_clone(&path).context("running git")? {
+            let clone = match git::check_clone(&path)? {
                 CloneCheck::Clone(clone) => clone,
                 CloneCheck::NotARepo => bail!("{} is not a git repository", path.display()),
                 CloneCheck::Subdirectory { toplevel } => bail!(
@@ -86,15 +88,19 @@ fn repo(cmd: RepoCommand) -> Result<()> {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .context("cannot derive a Repo name from the path; pass --name")?
-                    .to_string(),
+                    .parse()?,
             };
-            config.add_repo(&name, &clone)?;
+            config.add_repo(name.clone(), &clone)?;
             config.save()?;
             println!("registered {name} -> {}", clone.display());
             Ok(())
         }
         RepoCommand::List => {
-            let width = config.repos().map(|(n, _)| n.len()).max().unwrap_or(0);
+            let width = config
+                .repos()
+                .map(|(n, _)| n.as_str().len())
+                .max()
+                .unwrap_or(0);
             for (name, path) in config.repos() {
                 println!("{name:width$}  {}", path.display());
             }

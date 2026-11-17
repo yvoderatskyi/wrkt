@@ -4,10 +4,13 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::repo::RepoName;
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Directory holding every Workspace. `None` only between parsing and
     /// `load` filling in the default, which needs `$HOME`.
@@ -17,7 +20,7 @@ pub struct Config {
     pub branch_template: String,
     /// Registered Repos: name -> clone path. Sorted by name.
     #[serde(default)]
-    repos: BTreeMap<String, PathBuf>,
+    repos: BTreeMap<RepoName, PathBuf>,
 }
 
 fn default_branch_template() -> String {
@@ -67,17 +70,17 @@ impl Config {
     }
 
     /// Registered Repos as (name, clone path), sorted by name.
-    pub fn repos(&self) -> impl Iterator<Item = (&str, &Path)> {
-        self.repos.iter().map(|(n, p)| (n.as_str(), p.as_path()))
+    pub fn repos(&self) -> impl Iterator<Item = (&RepoName, &Path)> {
+        self.repos.iter().map(|(n, p)| (n, p.as_path()))
     }
 
-    /// Register a Repo. Names must be usable as a directory name, and neither
-    /// the name nor the clone may already be registered.
-    pub fn add_repo(&mut self, name: &str, clone: &Path) -> Result<()> {
-        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-            bail!("invalid Repo name '{name}': it must be usable as a directory name");
-        }
-        if let Some(existing) = self.repos.get(name) {
+    /// Register a Repo.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the name or the clone is already registered.
+    pub fn add_repo(&mut self, name: RepoName, clone: &Path) -> Result<()> {
+        if let Some(existing) = self.repos.get(&name) {
             bail!(
                 "a Repo named '{name}' is already registered ({})",
                 existing.display()
@@ -86,15 +89,20 @@ impl Config {
         if let Some((other, _)) = self.repos.iter().find(|(_, p)| *p == clone) {
             bail!("{} is already registered as '{other}'", clone.display());
         }
-        self.repos.insert(name.to_string(), clone.to_path_buf());
+        self.repos.insert(name, clone.to_path_buf());
         Ok(())
     }
 
     /// Unregister a Repo.
-    pub fn remove_repo(&mut self, name: &str) -> Result<()> {
-        match self.repos.remove(name) {
-            Some(_) => Ok(()),
-            None => bail!("no Repo named '{name}' is registered"),
-        }
+    ///
+    /// # Errors
+    ///
+    /// Fails if no Repo has that name.
+    pub fn remove_repo(&mut self, name: &RepoName) -> Result<()> {
+        ensure!(
+            self.repos.remove(name).is_some(),
+            "no Repo named '{name}' is registered"
+        );
+        Ok(())
     }
 }

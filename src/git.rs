@@ -5,19 +5,31 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use anyhow::{Context, Result};
+
 /// Captured result of one git invocation.
+#[derive(Debug)]
 pub struct GitOutput {
     pub success: bool,
     pub stdout: String,
-    #[allow(
+    #[expect(
         dead_code,
         reason = "shown for failed Repos once multi-Repo commands land"
     )]
     pub stderr: String,
 }
 
-fn run(dir: &Path, args: &[&str]) -> std::io::Result<GitOutput> {
-    let out = Command::new("git").args(args).current_dir(dir).output()?;
+/// Run git in `dir`. A non-zero exit is reported in the output, not as `Err`.
+///
+/// # Errors
+///
+/// Fails if git can't be spawned.
+fn run(dir: &Path, args: &[&str]) -> Result<GitOutput> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .with_context(|| format!("running git {}", args.join(" ")))?;
     Ok(GitOutput {
         success: out.status.success(),
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -26,6 +38,7 @@ fn run(dir: &Path, args: &[&str]) -> std::io::Result<GitOutput> {
 }
 
 /// What a path turned out to be, for registering it as a Repo.
+#[derive(Debug)]
 pub enum CloneCheck {
     /// The top level of a main working tree: registrable.
     Clone(PathBuf),
@@ -38,7 +51,11 @@ pub enum CloneCheck {
 }
 
 /// Classify `path` as a clone's top level, or say why it isn't one.
-pub fn check_clone(path: &Path) -> std::io::Result<CloneCheck> {
+///
+/// # Errors
+///
+/// Fails if git can't be spawned.
+pub fn check_clone(path: &Path) -> Result<CloneCheck> {
     let Ok(path) = path.canonicalize() else {
         return Ok(CloneCheck::NotARepo);
     };

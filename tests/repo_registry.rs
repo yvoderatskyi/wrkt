@@ -103,17 +103,23 @@ fn repo_rm_of_an_unknown_name_fails() {
 }
 
 #[test]
-fn without_a_config_file_defaults_apply_and_the_first_write_creates_it() {
+fn without_a_config_file_the_registry_is_empty_and_reading_creates_no_file() {
     let sb = Sandbox::new();
-    assert!(!sb.config_path().exists());
 
-    assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+    let run = sb.wrkt(&["repo", "list"]);
+
+    assert_eq!(run.success().stdout(), "");
     assert!(
         !sb.config_path().exists(),
         "a read must not create the config"
     );
+}
 
+#[test]
+fn without_a_config_file_the_first_write_creates_it_with_defaults() {
+    let sb = Sandbox::new();
     let api = sb.repo("api");
+
     sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
 
     let text = std::fs::read_to_string(sb.config_path()).expect("config written");
@@ -208,8 +214,17 @@ fn repo_add_rejects_names_that_cannot_be_a_directory_name() {
     let sb = Sandbox::new();
     let api = sb.repo("api");
 
-    for bad in ["", "a/b", ".", ".."] {
-        let run = sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", bad]);
+    let runs: Vec<_> = ["", "a/b", ".", ".."]
+        .into_iter()
+        .map(|bad| {
+            (
+                bad,
+                sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", bad]),
+            )
+        })
+        .collect();
+
+    for (bad, run) in &runs {
         run.failure();
         assert!(
             run.stderr().contains("invalid Repo name"),
@@ -236,4 +251,34 @@ fn repo_add_rejects_a_clone_that_is_already_registered() {
     );
     let out = sb.wrkt(&["repo", "list"]).success().stdout();
     assert!(!out.contains("again"), "registered twice:\n{out}");
+}
+
+#[test]
+fn a_config_with_an_unknown_key_is_rejected_naming_the_key() {
+    let sb = Sandbox::new();
+    sb.write_config("workspace-root = \"/typo\"\n");
+
+    let run = sb.wrkt(&["repo", "list"]);
+
+    run.failure();
+    assert!(
+        run.stderr().contains("workspace-root"),
+        "stderr: {}",
+        run.stderr()
+    );
+}
+
+#[test]
+fn a_config_with_an_invalid_repo_name_is_rejected() {
+    let sb = Sandbox::new();
+    sb.write_config("[repos]\n\"a/b\" = \"/somewhere\"\n");
+
+    let run = sb.wrkt(&["repo", "list"]);
+
+    run.failure();
+    assert!(
+        run.stderr().contains("invalid Repo name"),
+        "stderr: {}",
+        run.stderr()
+    );
 }
