@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -59,6 +59,48 @@ impl From<RepoName> for String {
 impl fmt::Display for RepoName {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.pad(&self.0)
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct RepoNames(BTreeSet<RepoName>);
+
+impl RepoNames {
+    pub fn contains(&self, repo: &RepoName) -> bool {
+        self.0.contains(repo)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn without(self, members: &RepoNames) -> RepoNames {
+        self.0
+            .into_iter()
+            .filter(|name| !members.contains(name))
+            .collect()
+    }
+}
+
+impl FromIterator<RepoName> for RepoNames {
+    fn from_iter<Names: IntoIterator<Item = RepoName>>(names: Names) -> Self {
+        RepoNames(names.into_iter().collect())
+    }
+}
+
+impl IntoIterator for RepoNames {
+    type Item = RepoName;
+    type IntoIter = std::collections::btree_set::IntoIter<RepoName>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl fmt::Display for RepoNames {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let names: Vec<_> = self.0.iter().map(RepoName::to_string).collect();
+        formatter.write_str(&names.join(" "))
     }
 }
 
@@ -150,6 +192,10 @@ impl Registry {
             );
         }
         Ok(Clones(selected))
+    }
+
+    pub fn names(&self) -> RepoNames {
+        self.0.keys().cloned().collect()
     }
 
     pub fn is_registered(&self, name: &str) -> bool {

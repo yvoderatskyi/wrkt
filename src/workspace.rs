@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -12,7 +12,7 @@ use crate::directory_name;
 use crate::name_column::NameColumn;
 use crate::push::PushOutcome;
 use crate::removal::{Removal, Safety};
-use crate::repo::{Clones, Registry, RepoName, Resolutions};
+use crate::repo::{Clones, Registry, RepoName, RepoNames, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
 use crate::sync::SyncOutcome;
@@ -112,7 +112,7 @@ impl Workspaces {
         let workspaces = subdirectories(root)?
             .into_iter()
             .filter_map(|directory| directory.parse::<WorkspaceName>().ok())
-            .map(|name| RepoNames::discover(&root.join(&name), registry).map(|repos| (name, repos)))
+            .map(|name| member_names(&root.join(&name), registry).map(|repos| (name, repos)))
             .collect::<Result<_>>()?;
         Ok(Workspaces(workspaces))
     }
@@ -223,29 +223,13 @@ fn member(worktree: PathBuf, registry: &Registry) -> Result<Option<(RepoName, Pa
     Ok(owner.map(|name| (name, worktree)))
 }
 
-struct RepoNames(BTreeSet<RepoName>);
-
-impl RepoNames {
-    fn contains(&self, repo: &RepoName) -> bool {
-        self.0.contains(repo)
-    }
-
-    fn discover(workspace: &Path, registry: &Registry) -> Result<Self> {
-        let names = subdirectories(workspace)?
-            .into_iter()
-            .map(|child| registry.owner_of(&workspace.join(child)))
-            .filter_map(Result::transpose)
-            .map(Result::<&RepoName, Error>::cloned)
-            .collect::<Result<_>>()?;
-        Ok(RepoNames(names))
-    }
-}
-
-impl fmt::Display for RepoNames {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let names: Vec<_> = self.0.iter().map(RepoName::to_string).collect();
-        formatter.write_str(&names.join(" "))
-    }
+pub fn member_names(workspace: &Path, registry: &Registry) -> Result<RepoNames> {
+    subdirectories(workspace)?
+        .into_iter()
+        .map(|child| registry.owner_of(&workspace.join(child)))
+        .filter_map(Result::transpose)
+        .map(Result::<&RepoName, Error>::cloned)
+        .collect()
 }
 
 const FINDER_METADATA: &str = ".DS_Store";

@@ -250,6 +250,20 @@ mod repo_rm {
     }
 
     #[test]
+    fn rejects_omitted_name_when_not_a_terminal() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+
+        // Act
+        let run = sandbox.wrkt(&["repo", "rm"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(run.stderr(), "error: no Repo given\n");
+    }
+
+    #[test]
     fn rejects_repo_when_a_workspace_uses_it() {
         // Arrange
         let sandbox = Sandbox::new();

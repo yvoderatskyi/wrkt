@@ -4,13 +4,14 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
+use crate::prompt::{self, Prompter};
 use crate::push::PushOutcome;
 use crate::removal::{Removal, Safety};
-use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
+use crate::repo::{ClonePath, Registry, RepoName, RepoNames, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
 use crate::sync::SyncOutcome;
-use crate::workspace::{Members, Workspace, WorkspaceName, Workspaces};
+use crate::workspace::{self, Members, Workspace, WorkspaceName, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -38,6 +39,10 @@ impl WorkspaceSettings {
         Workspace::existing(self.directory_of(name)?, registry, || {
             self.branch_template.branch_for(name)
         })
+    }
+
+    fn member_names(&self, name: &WorkspaceName, registry: &Registry) -> Result<RepoNames> {
+        workspace::member_names(&self.directory_of(name)?, registry)
     }
 
     fn members(&self, name: &WorkspaceName, registry: &Registry) -> Result<Members> {
@@ -174,25 +179,39 @@ impl Config {
         self.repos.add(name, clone)
     }
 
-    pub fn remove_repo(&mut self, name: &RepoName) -> Result<()> {
-        self.workspaces()?.ensure_unused_by(name)?;
-        self.repos.remove(name)
+    pub fn remove_repo(
+        &mut self,
+        given: Option<RepoName>,
+        prompter: &mut dyn Prompter,
+    ) -> Result<RepoName> {
+        let name = prompt::removed_repo(given, &self.repos, prompter)?;
+        self.workspaces()?.ensure_unused_by(&name)?;
+        self.repos.remove(&name)?;
+        Ok(name)
     }
 
     pub fn create_workspace(
         &self,
-        name: &WorkspaceName,
-        repos: &[RepoName],
+        name: Option<WorkspaceName>,
+        repos: Vec<RepoName>,
         branch: Option<Branch>,
+        prompter: &mut dyn Prompter,
     ) -> Result<Resolutions<'_>> {
-        let workspace = self.workspace.workspace(name, branch)?;
-        let clones = self.repos.select(repos)?;
+        let (name, repos) = prompt::new_workspace_arguments(name, repos, &self.repos, prompter)?;
+        let workspace = self.workspace.workspace(&name, branch)?;
+        let clones = self.repos.select(&repos)?;
         workspace.create(&clones)
     }
 
-    pub fn extend_workspace(&self, arguments: &[String]) -> Result<Resolutions<'_>> {
+    pub fn extend_workspace(
+        &self,
+        arguments: &[String],
+        prompter: &mut dyn Prompter,
+    ) -> Result<Resolutions<'_>> {
         let (name, repos) = self.split_workspace_name(arguments)?;
         let name = self.resolve_workspace(name)?;
+        let members = self.workspace.member_names(&name, &self.repos)?;
+        let repos = prompt::added_repos(repos, &name, &members, &self.repos, prompter)?;
         let workspace = self.workspace.existing(&name, &self.repos)?;
         workspace.extend(&self.repos.select(&repos)?)
     }
@@ -201,11 +220,23 @@ impl Config {
         &self,
         arguments: &[String],
     ) -> Result<(Option<WorkspaceName>, Vec<RepoName>)> {
-        let (first, rest) = arguments.split_first().context("no Repo given")?;
+        let Some((first, rest)) = arguments.split_first() else {
+            return Ok((None, Vec::new()));
+        };
+        if rest.is_empty() && self.names_workspace(first) {
+            return Ok((Some(first.parse()?), Vec::new()));
+        }
         if rest.is_empty() || self.repos.is_registered(first) {
             return Ok((None, parse_repo_names(arguments)?));
         }
         Ok((Some(first.parse()?), parse_repo_names(rest)?))
+    }
+
+    fn names_workspace(&self, argument: &str) -> bool {
+        !self.repos.is_registered(argument)
+            && argument
+                .parse()
+                .is_ok_and(|name| self.workspace.directory_of(&name).is_ok())
     }
 
     pub fn resolve_workspace(&self, name: Option<WorkspaceName>) -> Result<WorkspaceName> {
