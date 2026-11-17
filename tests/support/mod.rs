@@ -1,5 +1,3 @@
-//! Shared integration-test sandbox: a temp HOME (and so a temp config dir), a
-//! temp Workspace root, and real Repos cloned from local bare `origin` repos.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
@@ -10,9 +8,7 @@ use tempfile::TempDir;
 pub struct Sandbox {
     _tmp: TempDir,
     pub home: PathBuf,
-    /// Where clones live (outside the Workspace root).
     pub src: PathBuf,
-    /// Where bare `origin` repos live.
     pub remotes: PathBuf,
     pub workspace_root: PathBuf,
 }
@@ -20,7 +16,6 @@ pub struct Sandbox {
 impl Sandbox {
     pub fn new() -> Self {
         let tmp = TempDir::new().expect("create temp dir");
-        // Canonicalize so paths match what git reports (macOS /var -> /private/var).
         let base = tmp.path().canonicalize().expect("canonicalize temp dir");
         let home = base.join("home");
         let src = base.join("src");
@@ -42,17 +37,14 @@ impl Sandbox {
         self.home.join(".config/wrkt/config.toml")
     }
 
-    /// Run the `wrkt` binary inside the sandbox from HOME.
     pub fn wrkt(&self, args: &[&str]) -> Run {
         self.wrkt_with(&self.home, &[], args)
     }
 
-    /// Run the `wrkt` binary inside the sandbox from `cwd`.
     pub fn wrkt_in(&self, cwd: &Path, args: &[&str]) -> Run {
         self.wrkt_with(cwd, &[], args)
     }
 
-    /// Run the `wrkt` binary from `cwd` with extra environment variables.
     pub fn wrkt_with(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Run {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_wrkt"));
         cmd.args(args).current_dir(cwd);
@@ -61,7 +53,6 @@ impl Sandbox {
         Run(cmd.output().expect("run wrkt"))
     }
 
-    /// Run plain `git` inside the sandbox; panics on failure.
     pub fn git(&self, dir: &Path, args: &[&str]) -> String {
         let mut cmd = Command::new("git");
         cmd.args(args).current_dir(dir);
@@ -76,8 +67,6 @@ impl Sandbox {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
-    /// Create a bare `origin` with one commit on `main`, and clone it to
-    /// `<src>/<name>`. Returns the clone's path.
     pub fn repo(&self, name: &str) -> PathBuf {
         let origin = self.remotes.join(format!("{name}.git"));
         let seed = self.remotes.join(format!("{name}-seed"));
@@ -102,7 +91,6 @@ impl Sandbox {
         clone
     }
 
-    /// Write a config file pointing the Workspace root into the sandbox.
     pub fn write_config(&self, extra: &str) {
         let path = self.config_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -123,7 +111,6 @@ impl Sandbox {
     }
 }
 
-/// The result of one `wrkt` invocation.
 pub struct Run(pub Output);
 
 impl Run {

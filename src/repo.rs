@@ -1,13 +1,9 @@
-//! Repo names: validated once at the boundary (CLI argument, config file).
-
 use std::fmt;
 use std::str::FromStr;
 
 use anyhow::{Error, ensure};
 use serde::{Deserialize, Serialize};
 
-/// A registered Repo's short name. It is always usable as a single directory
-/// name, since each Repo becomes `<Workspace>/<name>/`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RepoName(String);

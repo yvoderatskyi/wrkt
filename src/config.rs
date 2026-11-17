@@ -1,6 +1,3 @@
-//! Loads and saves `config.toml`: the Workspace root, the branch template and
-//! the Repo registry. Missing file or keys fall back to defaults.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -12,13 +9,9 @@ use crate::repo::RepoName;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Directory holding every Workspace. `None` only between parsing and
-    /// `load` filling in the default, which needs `$HOME`.
     workspace_root: Option<PathBuf>,
-    /// Branch name template; `{key}` is replaced with the Workspace name.
     #[serde(default = "default_branch_template")]
     pub branch_template: String,
-    /// Registered Repos: name -> clone path. Sorted by name.
     #[serde(default)]
     repos: BTreeMap<RepoName, PathBuf>,
 }
@@ -27,7 +20,6 @@ fn default_branch_template() -> String {
     "{key}".to_string()
 }
 
-/// `$XDG_CONFIG_HOME/wrkt/config.toml`, else `$HOME/.config/wrkt/config.toml`.
 pub fn config_path() -> Result<PathBuf> {
     let config_home = match std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
@@ -44,7 +36,6 @@ fn home() -> Result<PathBuf> {
 }
 
 impl Config {
-    /// Load the config, or the defaults when the file doesn't exist.
     pub fn load() -> Result<Self> {
         let path = config_path()?;
         let mut config: Config = match std::fs::read_to_string(&path) {
@@ -59,7 +50,6 @@ impl Config {
         Ok(config)
     }
 
-    /// Write the config, creating its directory if needed.
     pub fn save(&self) -> Result<()> {
         let path = config_path()?;
         if let Some(dir) = path.parent() {
@@ -69,16 +59,10 @@ impl Config {
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Registered Repos as (name, clone path), sorted by name.
     pub fn repos(&self) -> impl Iterator<Item = (&RepoName, &Path)> {
         self.repos.iter().map(|(n, p)| (n, p.as_path()))
     }
 
-    /// Register a Repo.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the name or the clone is already registered.
     pub fn add_repo(&mut self, name: RepoName, clone: &Path) -> Result<()> {
         if let Some(existing) = self.repos.get(&name) {
             bail!(
@@ -93,11 +77,6 @@ impl Config {
         Ok(())
     }
 
-    /// Unregister a Repo.
-    ///
-    /// # Errors
-    ///
-    /// Fails if no Repo has that name.
     pub fn remove_repo(&mut self, name: &RepoName) -> Result<()> {
         ensure!(
             self.repos.remove(name).is_some(),
