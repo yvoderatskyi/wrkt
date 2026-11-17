@@ -2,15 +2,14 @@ mod config;
 mod git;
 mod repo;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use config::Config;
-use git::CloneCheck;
-use repo::RepoName;
+use repo::{ClonePath, RepoName};
 
 #[derive(Parser)]
 #[command(
@@ -49,68 +48,46 @@ enum RepoCommand {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    match run(cli) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e:#}");
-            ExitCode::FAILURE
-        }
-    }
+    let Err(error) = run(Cli::parse()) else {
+        return ExitCode::SUCCESS;
+    };
+    eprintln!("error: {error:#}");
+    ExitCode::FAILURE
 }
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Repo(cmd) => repo(cmd),
+        Command::Repo(command) => run_repo(command),
     }
 }
 
-fn repo(cmd: RepoCommand) -> Result<()> {
+fn run_repo(command: RepoCommand) -> Result<()> {
     let mut config = Config::load()?;
-    match cmd {
-        RepoCommand::Add { path, name } => {
-            let clone = match git::check_clone(&path)? {
-                CloneCheck::Clone(clone) => clone,
-                CloneCheck::NotARepo => bail!("{} is not a git repository", path.display()),
-                CloneCheck::Subdirectory { toplevel } => bail!(
-                    "{} is not the top level of a clone; did you mean {}?",
-                    path.display(),
-                    toplevel.display()
-                ),
-                CloneCheck::LinkedWorktree => bail!(
-                    "{} is a linked worktree; register the main clone instead",
-                    path.display()
-                ),
-            };
-            let name = match name {
-                Some(name) => name,
-                None => clone
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .context("cannot derive a Repo name from the path; pass --name")?
-                    .parse()?,
-            };
-            config.add_repo(name.clone(), &clone)?;
-            config.save()?;
-            println!("registered {name} -> {}", clone.display());
-            Ok(())
-        }
-        RepoCommand::List => {
-            let width = config
-                .repos()
-                .map(|(n, _)| n.as_str().len())
-                .max()
-                .unwrap_or(0);
-            for (name, path) in config.repos() {
-                println!("{name:width$}  {}", path.display());
-            }
-            Ok(())
-        }
-        RepoCommand::Rm { name } => {
-            config.remove_repo(&name)?;
-            config.save()?;
-            println!("unregistered {name}");
-            Ok(())
-        }
+    match command {
+        RepoCommand::Add { path, name } => add_repo(&mut config, &path, name),
+        RepoCommand::List => list_repos(&config),
+        RepoCommand::Rm { name } => remove_repo(&mut config, &name),
     }
+}
+
+fn add_repo(config: &mut Config, path: &Path, name: Option<RepoName>) -> Result<()> {
+    let clone = ClonePath::at(path)?;
+    let name = name.map_or_else(|| clone.default_name(), Ok)?;
+    let confirmation = format!("registered {name} -> {clone}");
+    config.add_repo(name, clone)?;
+    config.save()?;
+    println!("{confirmation}");
+    Ok(())
+}
+
+fn list_repos(config: &Config) -> Result<()> {
+    print!("{}", config.describe_repos());
+    Ok(())
+}
+
+fn remove_repo(config: &mut Config, name: &RepoName) -> Result<()> {
+    config.remove_repo(name)?;
+    config.save()?;
+    println!("unregistered {name}");
+    Ok(())
 }

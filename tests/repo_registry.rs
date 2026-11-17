@@ -6,15 +6,20 @@ mod repo_add {
     #[test]
     fn registers_repo_under_directory_name_when_no_name_given() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
 
         // Act
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
 
         // Assert
-        let out = sb.wrkt(&["repo", "list"]).success().stdout();
-        let line = out.lines().find(|l| l.contains("api")).expect("api listed");
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
+        let line = listing
+            .lines()
+            .find(|l| l.contains("api"))
+            .expect("api listed");
         assert!(
             line.contains(api.to_str().unwrap()),
             "path missing from: {line}"
@@ -24,31 +29,32 @@ mod repo_add {
     #[test]
     fn registers_repo_under_flag_name_when_name_given() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
 
         // Act
-        sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", "backend"])
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap(), "--name", "backend"])
             .success();
 
         // Assert
-        let out = sb.wrkt(&["repo", "list"]).success().stdout();
-        let names: Vec<_> = out
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
+        let names: Vec<_> = listing
             .lines()
             .filter_map(|l| l.split_whitespace().next())
             .collect();
-        assert_eq!(names, ["backend"], "listed:\n{out}");
+        assert_eq!(names, ["backend"], "listed:\n{listing}");
     }
 
     #[test]
     fn rejects_path_when_not_a_git_repository() {
         // Arrange
-        let sb = Sandbox::new();
-        let plain = sb.src.join("plain");
+        let sandbox = Sandbox::new();
+        let plain = sandbox.clones().join("plain");
         std::fs::create_dir_all(&plain).unwrap();
 
         // Act
-        let run = sb.wrkt(&["repo", "add", plain.to_str().unwrap()]);
+        let run = sandbox.wrkt(&["repo", "add", plain.to_str().unwrap()]);
 
         // Assert
         run.failure();
@@ -57,19 +63,19 @@ mod repo_add {
             "stderr: {}",
             run.stderr()
         );
-        assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+        assert_eq!(sandbox.wrkt(&["repo", "list"]).success().stdout(), "");
     }
 
     #[test]
     fn rejects_path_when_subdirectory_of_clone() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
-        let sub = api.join("sub");
-        std::fs::create_dir_all(&sub).unwrap();
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        let subdirectory = api.join("subdirectory");
+        std::fs::create_dir_all(&subdirectory).unwrap();
 
         // Act
-        let run = sb.wrkt(&["repo", "add", sub.to_str().unwrap()]);
+        let run = sandbox.wrkt(&["repo", "add", subdirectory.to_str().unwrap()]);
 
         // Assert
         run.failure();
@@ -78,22 +84,22 @@ mod repo_add {
             "stderr: {}",
             run.stderr()
         );
-        assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+        assert_eq!(sandbox.wrkt(&["repo", "list"]).success().stdout(), "");
     }
 
     #[test]
     fn rejects_path_when_linked_worktree() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
-        let wt = sb.src.join("api-wt");
-        sb.git(
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        let worktree = sandbox.clones().join("api-worktree");
+        sandbox.git(
             &api,
-            &["worktree", "add", "-b", "side", wt.to_str().unwrap()],
+            &["worktree", "add", "-b", "side", worktree.to_str().unwrap()],
         );
 
         // Act
-        let run = sb.wrkt(&["repo", "add", wt.to_str().unwrap()]);
+        let run = sandbox.wrkt(&["repo", "add", worktree.to_str().unwrap()]);
 
         // Assert
         run.failure();
@@ -102,48 +108,48 @@ mod repo_add {
             "stderr: {}",
             run.stderr()
         );
-        assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+        assert_eq!(sandbox.wrkt(&["repo", "list"]).success().stdout(), "");
     }
 
     #[test]
     fn rejects_name_when_unusable_as_directory() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
 
         // Act
-        let runs: Vec<_> = ["", "a/b", ".", ".."]
+        let attempts: Vec<_> = ["", "a/b", ".", ".."]
             .into_iter()
-            .map(|bad| {
+            .map(|name| {
                 (
-                    bad,
-                    sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", bad]),
+                    name,
+                    sandbox.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", name]),
                 )
             })
             .collect();
 
         // Assert
-        for (bad, run) in &runs {
-            run.failure();
-            assert!(
-                run.stderr().contains("invalid Repo name"),
-                "{bad:?}: {}",
-                run.stderr()
-            );
-        }
-        assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+        let accepted: Vec<_> = attempts
+            .iter()
+            .filter(|(_, run)| run.succeeded() || !run.stderr().contains("invalid Repo name"))
+            .map(|(name, _)| *name)
+            .collect();
+        assert!(accepted.is_empty(), "not rejected as invalid: {accepted:?}");
+        assert_eq!(sandbox.wrkt(&["repo", "list"]).success().stdout(), "");
     }
 
     #[test]
     fn rejects_name_when_already_registered() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
-        let other = sb.repo("other");
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        let other = sandbox.repo("other");
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
 
         // Act
-        let run = sb.wrkt(&["repo", "add", other.to_str().unwrap(), "--name", "api"]);
+        let run = sandbox.wrkt(&["repo", "add", other.to_str().unwrap(), "--name", "api"]);
 
         // Assert
         run.failure();
@@ -152,26 +158,28 @@ mod repo_add {
             "stderr: {}",
             run.stderr()
         );
-        let out = sb.wrkt(&["repo", "list"]).success().stdout();
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
         assert!(
-            out.contains(api.to_str().unwrap()),
-            "original entry lost:\n{out}"
+            listing.contains(api.to_str().unwrap()),
+            "original entry lost:\n{listing}"
         );
         assert!(
-            !out.contains(other.to_str().unwrap()),
-            "duplicate registered:\n{out}"
+            !listing.contains(other.to_str().unwrap()),
+            "duplicate registered:\n{listing}"
         );
     }
 
     #[test]
     fn rejects_clone_when_already_registered() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
 
         // Act
-        let run = sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", "again"]);
+        let run = sandbox.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", "again"]);
 
         // Assert
         run.failure();
@@ -180,8 +188,8 @@ mod repo_add {
             "stderr: {}",
             run.stderr()
         );
-        let out = sb.wrkt(&["repo", "list"]).success().stdout();
-        assert!(!out.contains("again"), "registered twice:\n{out}");
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
+        assert!(!listing.contains("again"), "registered twice:\n{listing}");
     }
 }
 
@@ -191,29 +199,33 @@ mod repo_rm {
     #[test]
     fn unregisters_repo_when_registered() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
-        let web = sb.repo("web");
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
-        sb.wrkt(&["repo", "add", web.to_str().unwrap()]).success();
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        let web = sandbox.repo("web");
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
+        sandbox
+            .wrkt(&["repo", "add", web.to_str().unwrap()])
+            .success();
 
         // Act
-        sb.wrkt(&["repo", "rm", "api"]).success();
+        sandbox.wrkt(&["repo", "rm", "api"]).success();
 
         // Assert
-        let out = sb.wrkt(&["repo", "list"]).success().stdout();
-        assert!(!out.contains("api"), "api still listed:\n{out}");
-        assert!(out.contains("web"), "web lost:\n{out}");
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
+        assert!(!listing.contains("api"), "api still listed:\n{listing}");
+        assert!(listing.contains("web"), "web lost:\n{listing}");
         assert!(api.exists(), "repo rm must not touch the clone");
     }
 
     #[test]
     fn rejects_name_when_not_registered() {
         // Arrange
-        let sb = Sandbox::new();
+        let sandbox = Sandbox::new();
 
         // Act
-        let run = sb.wrkt(&["repo", "rm", "nope"]);
+        let run = sandbox.wrkt(&["repo", "rm", "nope"]);
 
         // Assert
         run.failure();
@@ -227,15 +239,15 @@ mod config {
     #[test]
     fn creates_no_file_when_missing_and_only_read() {
         // Arrange
-        let sb = Sandbox::new();
+        let sandbox = Sandbox::new();
 
         // Act
-        let run = sb.wrkt(&["repo", "list"]);
+        let run = sandbox.wrkt(&["repo", "list"]);
 
         // Assert
         assert_eq!(run.success().stdout(), "");
         assert!(
-            !sb.config_path().exists(),
+            !sandbox.config_path().exists(),
             "a read must not create the config"
         );
     }
@@ -243,15 +255,17 @@ mod config {
     #[test]
     fn creates_file_with_defaults_when_first_written() {
         // Arrange
-        let sb = Sandbox::new();
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
 
         // Act
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
 
         // Assert
-        let text = std::fs::read_to_string(sb.config_path()).expect("config written");
-        let default_root = sb.home.join("wrkt");
+        let text = std::fs::read_to_string(sandbox.config_path()).expect("config written");
+        let default_root = sandbox.home().join("wrkt");
         assert!(
             text.contains(default_root.to_str().unwrap()),
             "default root missing:\n{text}"
@@ -265,17 +279,19 @@ mod config {
     #[test]
     fn keeps_workspace_root_when_repo_added() {
         // Arrange
-        let sb = Sandbox::new();
-        sb.write_config("");
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        sandbox.write_config("");
+        let api = sandbox.repo("api");
 
         // Act
-        sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
 
         // Assert
-        let text = std::fs::read_to_string(sb.config_path()).unwrap();
+        let text = std::fs::read_to_string(sandbox.config_path()).unwrap();
         assert!(
-            text.contains(sb.workspace_root.to_str().unwrap()),
+            text.contains(sandbox.workspace_root().to_str().unwrap()),
             "root lost:\n{text}"
         );
         assert!(
@@ -287,31 +303,32 @@ mod config {
     #[test]
     fn uses_xdg_config_home_when_set() {
         // Arrange
-        let sb = Sandbox::new();
-        let xdg = sb.home.join("xdg");
-        let api = sb.repo("api");
+        let sandbox = Sandbox::new();
+        let xdg_config_home = sandbox.home().join("xdg_config_home");
+        let api = sandbox.repo("api");
 
         // Act
-        sb.wrkt_with(
-            &sb.home,
-            &[("XDG_CONFIG_HOME", xdg.to_str().unwrap())],
-            &["repo", "add", api.to_str().unwrap()],
-        )
-        .success();
+        sandbox
+            .wrkt_with(
+                &sandbox.home(),
+                &[("XDG_CONFIG_HOME", xdg_config_home.to_str().unwrap())],
+                &["repo", "add", api.to_str().unwrap()],
+            )
+            .success();
 
         // Assert
-        assert!(xdg.join("wrkt/config.toml").exists());
-        assert!(!sb.config_path().exists());
+        assert!(xdg_config_home.join("wrkt/config.toml").exists());
+        assert!(!sandbox.config_path().exists());
     }
 
     #[test]
     fn rejects_file_when_key_unknown() {
         // Arrange
-        let sb = Sandbox::new();
-        sb.write_config("workspace-root = \"/typo\"\n");
+        let sandbox = Sandbox::new();
+        sandbox.write_config("workspace-root = \"/typo\"\n");
 
         // Act
-        let run = sb.wrkt(&["repo", "list"]);
+        let run = sandbox.wrkt(&["repo", "list"]);
 
         // Assert
         run.failure();
@@ -325,11 +342,11 @@ mod config {
     #[test]
     fn rejects_file_when_repo_name_invalid() {
         // Arrange
-        let sb = Sandbox::new();
-        sb.write_config("[repos]\n\"a/b\" = \"/somewhere\"\n");
+        let sandbox = Sandbox::new();
+        sandbox.write_config("[repos]\n\"a/b\" = \"/somewhere\"\n");
 
         // Act
-        let run = sb.wrkt(&["repo", "list"]);
+        let run = sandbox.wrkt(&["repo", "list"]);
 
         // Assert
         run.failure();

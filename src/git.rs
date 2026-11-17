@@ -1,49 +1,42 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 
 #[derive(Debug)]
-pub struct GitOutput {
-    pub success: bool,
-    pub stdout: String,
-    #[expect(
-        dead_code,
-        reason = "shown for failed Repos once multi-Repo commands land"
-    )]
-    pub stderr: String,
+enum GitOutput {
+    Succeeded(String),
+    Failed(
+        #[expect(
+            dead_code,
+            reason = "shown for failed Repos once multi-Repo commands land"
+        )]
+        String,
+    ),
 }
 
-fn run(dir: &Path, args: &[&str]) -> Result<GitOutput> {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
+fn run(directory: &Path, arguments: &[&str]) -> Result<GitOutput> {
+    let output = Command::new("git")
+        .args(arguments)
+        .current_dir(directory)
         .output()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
-    Ok(GitOutput {
-        success: out.status.success(),
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-    })
-}
-
-#[derive(Debug)]
-pub enum CloneCheck {
-    Clone(PathBuf),
-    NotARepo,
-    Subdirectory { toplevel: PathBuf },
-    LinkedWorktree,
-}
-
-pub fn check_clone(path: &Path) -> Result<CloneCheck> {
-    let Ok(path) = path.canonicalize() else {
-        return Ok(CloneCheck::NotARepo);
-    };
-    if !path.is_dir() {
-        return Ok(CloneCheck::NotARepo);
+        .with_context(|| format!("running git {}", arguments.join(" ")))?;
+    if !output.status.success() {
+        return Ok(GitOutput::Failed(lossy(&output.stderr)));
     }
-    let out = run(
-        &path,
+    Ok(GitOutput::Succeeded(lossy(&output.stdout)))
+}
+
+fn lossy(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+pub fn clone_root(path: &Path) -> Result<PathBuf> {
+    let not_a_repository = || format!("{} is not a git repository", path.display());
+    let canonical = path.canonicalize().with_context(not_a_repository)?;
+    ensure!(canonical.is_dir(), not_a_repository());
+    let GitOutput::Succeeded(stdout) = run(
+        &canonical,
         &[
             "rev-parse",
             "--path-format=absolute",
@@ -51,21 +44,26 @@ pub fn check_clone(path: &Path) -> Result<CloneCheck> {
             "--git-dir",
             "--git-common-dir",
         ],
-    )?;
-    if !out.success {
-        return Ok(CloneCheck::NotARepo);
-    }
-    let mut lines = out.stdout.lines().map(PathBuf::from);
-    let (Some(toplevel), Some(git_dir), Some(common_dir)) =
+    )?
+    else {
+        bail!(not_a_repository());
+    };
+    let mut lines = stdout.lines().map(PathBuf::from);
+    let (Some(toplevel), Some(git_directory), Some(common_directory)) =
         (lines.next(), lines.next(), lines.next())
     else {
-        return Ok(CloneCheck::NotARepo);
+        bail!(not_a_repository());
     };
-    Ok(if toplevel != path {
-        CloneCheck::Subdirectory { toplevel }
-    } else if git_dir != common_dir {
-        CloneCheck::LinkedWorktree
-    } else {
-        CloneCheck::Clone(toplevel)
-    })
+    ensure!(
+        toplevel == canonical,
+        "{} is not the top level of a clone; did you mean {}?",
+        path.display(),
+        toplevel.display()
+    );
+    ensure!(
+        git_directory == common_directory,
+        "{} is a linked worktree; register the main clone instead",
+        path.display()
+    );
+    Ok(canonical)
 }
