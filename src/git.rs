@@ -23,17 +23,22 @@ enum GitOutput {
 }
 
 fn run<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<GitOutput> {
+    let output = execute(directory, arguments)?;
+    if !output.status.success() {
+        let combined = [output.stdout.as_slice(), output.stderr.as_slice()].concat();
+        return Ok(GitOutput::Failed(lossy(&combined)));
+    }
+    Ok(GitOutput::Succeeded(lossy(&output.stdout)))
+}
+
+fn execute<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<Output> {
     let output = Command::new("git")
         .args(arguments)
         .current_dir(directory)
         .output()
         .with_context(|| format!("running git {}", describe(arguments)))?;
     echo(directory, arguments, &output);
-    if !output.status.success() {
-        let combined = [output.stdout.as_slice(), output.stderr.as_slice()].concat();
-        return Ok(GitOutput::Failed(lossy(&combined)));
-    }
-    Ok(GitOutput::Succeeded(lossy(&output.stdout)))
+    Ok(output)
 }
 
 fn echo<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument], output: &Output) {
@@ -218,6 +223,11 @@ pub fn contains_base(worktree: &Path) -> Result<bool> {
     succeeds(worktree, &["merge-base", "--is-ancestor", &base, "HEAD"])
 }
 
+pub fn is_contained_in_base(worktree: &Path) -> Result<bool> {
+    let base = remote_reference(BASE_BRANCH);
+    succeeds(worktree, &["merge-base", "--is-ancestor", "HEAD", &base])
+}
+
 pub enum RebaseEnd {
     Completed,
     Conflicted,
@@ -235,6 +245,34 @@ pub fn rebase_onto_base(worktree: &Path) -> Result<RebaseEnd> {
         output.trim()
     );
     Ok(RebaseEnd::Conflicted)
+}
+
+pub enum PushEnd {
+    Accepted(String),
+    Rejected,
+}
+
+pub fn push(worktree: &Path, branch: &str) -> Result<PushEnd> {
+    let arguments = [
+        "push",
+        "--force-with-lease",
+        "--force-if-includes",
+        "--set-upstream",
+        REMOTE,
+        branch,
+    ];
+    let output = execute(worktree, &arguments)?;
+    let messages = lossy(&output.stderr);
+    if output.status.success() {
+        return Ok(PushEnd::Accepted(messages));
+    }
+    ensure!(
+        messages.contains("[rejected]"),
+        "git {} failed: {}",
+        describe(&arguments),
+        messages.trim()
+    );
+    Ok(PushEnd::Rejected)
 }
 
 fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -114,6 +115,14 @@ impl Sandbox {
     }
 
     pub fn push_colleague_commit(&self, name: &str, branch: &str) -> String {
+        self.push_colleague_commit_from(name, "main", branch)
+    }
+
+    pub fn extend_origin_branch(&self, name: &str, branch: &str) -> String {
+        self.push_colleague_commit_from(name, branch, branch)
+    }
+
+    fn push_colleague_commit_from(&self, name: &str, start: &str, branch: &str) -> String {
         let remotes = self.remotes();
         let origin = remotes.join(format!("{name}.git"));
         let colleague = remotes.join(format!("{name}-colleague"));
@@ -121,6 +130,8 @@ impl Sandbox {
             &remotes,
             &[
                 "clone",
+                "--branch",
+                start,
                 origin.to_str().unwrap(),
                 colleague.to_str().unwrap(),
             ],
@@ -132,6 +143,15 @@ impl Sandbox {
         let commit = self.git(&colleague, &["rev-parse", "HEAD"]);
         std::fs::remove_dir_all(&colleague).unwrap();
         commit
+    }
+
+    pub fn print_on_origin_push(&self, name: &str, message: &str) {
+        let hook = self
+            .remotes()
+            .join(format!("{name}.git/hooks/post-receive"));
+        std::fs::write(&hook, format!("#!/bin/sh\ncat <<'EOF'\n{message}\nEOF\n")).unwrap();
+        let executable = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&hook, executable).unwrap();
     }
 
     pub fn delete_origin_branch(&self, name: &str, branch: &str) {

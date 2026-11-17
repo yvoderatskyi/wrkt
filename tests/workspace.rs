@@ -1307,3 +1307,183 @@ mod sync {
         );
     }
 }
+
+mod push {
+    use super::support::Sandbox;
+
+    #[test]
+    fn pushes_repo_and_sets_upstream_when_ahead() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        let work = sandbox.commit_in(&worktree, "WORK.md");
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("pushed"), "{run}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            format!("{work}\trefs/heads/PROJ-123")
+        );
+        assert_eq!(
+            sandbox.git(&worktree, &["rev-parse", "--abbrev-ref", "@{upstream}"]),
+            "origin/PROJ-123"
+        );
+    }
+
+    #[test]
+    fn skips_repo_without_creating_remote_branch_when_nothing_ahead() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("nothing to push"), "{line}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            ""
+        );
+    }
+
+    #[test]
+    fn rejects_push_when_remote_branch_has_unseen_commit() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+        sandbox.wrkt(&["push", "PROJ-123"]).success();
+        let colleague = sandbox.extend_origin_branch("api", "PROJ-123");
+        sandbox.commit_in(&worktree, "MORE.md");
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        assert!(run.failure().line_for("api").contains("rejected"), "{run}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            format!("{colleague}\trefs/heads/PROJ-123")
+        );
+    }
+
+    #[test]
+    fn pushes_rewritten_history_when_sync_rebased_pushed_branch() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+        sandbox.wrkt(&["push", "PROJ-123"]).success();
+        sandbox.advance_origin_main("api");
+        sandbox.wrkt(&["sync", "PROJ-123"]).success();
+        let rebased = sandbox.git(&worktree, &["rev-parse", "HEAD"]);
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("pushed"), "{run}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            format!("{rebased}\trefs/heads/PROJ-123")
+        );
+    }
+
+    #[test]
+    fn rejects_push_when_sync_fetched_unseen_remote_commit() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+        sandbox.wrkt(&["push", "PROJ-123"]).success();
+        let colleague = sandbox.extend_origin_branch("api", "PROJ-123");
+        sandbox.advance_origin_main("api");
+        sandbox.wrkt(&["sync", "PROJ-123"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        assert!(run.failure().line_for("api").contains("rejected"), "{run}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            format!("{colleague}\trefs/heads/PROJ-123")
+        );
+    }
+
+    #[test]
+    fn shows_pull_request_url_when_host_prints_one() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+        sandbox.print_on_origin_push(
+            "api",
+            "\nCreate a pull request for 'PROJ-123' on GitHub by visiting:\n     https://github.com/acme/api/pull/new/PROJ-123\n",
+        );
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(
+            line.contains("https://github.com/acme/api/pull/new/PROJ-123"),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn skips_repo_without_pushing_when_rebase_in_progress() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.rebase_into_conflict("api", &api, &worktree);
+
+        // Act
+        let run = sandbox.wrkt(&["push", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("skipped: rebase in progress"), "{line}");
+        assert_eq!(
+            sandbox.git(&worktree, &["ls-remote", "origin", "refs/heads/PROJ-123"]),
+            ""
+        );
+    }
+
+    #[test]
+    fn infers_workspace_when_run_inside_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+
+        // Act
+        let run = sandbox.wrkt_in(&worktree, &["push"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("pushed"), "{run}");
+    }
+}

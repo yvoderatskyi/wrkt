@@ -2,6 +2,7 @@ mod branch;
 mod config;
 mod directory_name;
 mod git;
+mod push;
 mod repo;
 mod report;
 mod status;
@@ -66,6 +67,11 @@ enum Command {
         /// Workspace name (defaults to the Workspace containing the current directory)
         name: Option<WorkspaceName>,
     },
+    /// Push every Repo with commits ahead of origin/main
+    Push {
+        /// Workspace name (defaults to the Workspace containing the current directory)
+        name: Option<WorkspaceName>,
+    },
     /// Print the Workspace a command would act on
     #[command(hide = true)]
     Which {
@@ -116,6 +122,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::List => list_workspaces(),
         Command::Status { name } => show_status(name),
         Command::Sync { name } => sync_workspace(name),
+        Command::Push { name } => push_workspace(name),
         Command::Which { name } => print_workspace(name),
     }
 }
@@ -138,6 +145,12 @@ fn show_status(name: Option<WorkspaceName>) -> Result<()> {
 
 fn sync_workspace(name: Option<WorkspaceName>) -> Result<()> {
     let report = Config::load()?.sync(name)?;
+    print!("{report}");
+    report.ensure_succeeded()
+}
+
+fn push_workspace(name: Option<WorkspaceName>) -> Result<()> {
+    let report = Config::load()?.push(name)?;
     print!("{report}");
     report.ensure_succeeded()
 }

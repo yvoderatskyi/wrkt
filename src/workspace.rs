@@ -9,6 +9,7 @@ use anyhow::{Context, Error, Result, anyhow, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
+use crate::push::PushOutcome;
 use crate::repo::{Clones, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
@@ -134,6 +135,10 @@ impl Members {
 
     pub fn sync(&self) -> Report<SyncOutcome> {
         self.in_parallel(SyncOutcome::run_in)
+    }
+
+    pub fn push(&self) -> Report<PushOutcome> {
+        self.in_parallel(PushOutcome::run_in)
     }
 
     fn in_parallel<Outcome: Send>(

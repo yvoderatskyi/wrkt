@@ -5,6 +5,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
+use crate::push::PushOutcome;
 use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
@@ -228,6 +229,12 @@ impl Config {
         let name = self.resolve_workspace(name)?;
         let members = self.workspace.members(&name, &self.repos)?;
         Ok(members.sync())
+    }
+
+    pub fn push(&self, name: Option<WorkspaceName>) -> Result<Report<PushOutcome>> {
+        let name = self.resolve_workspace(name)?;
+        let members = self.workspace.members(&name, &self.repos)?;
+        Ok(members.push())
     }
 
     pub fn describe_repos(&self) -> String {
