@@ -7,9 +7,7 @@ use crate::name_column::NameColumn;
 use crate::repo::RepoName;
 
 pub trait Success {
-    fn succeeded(&self) -> bool {
-        true
-    }
+    fn succeeded(&self) -> bool;
 }
 
 pub struct Report<Outcome>(BTreeMap<RepoName, Result<Outcome>>);

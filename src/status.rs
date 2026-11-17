@@ -20,7 +20,11 @@ impl RepoStatus {
     }
 }
 
-impl Success for RepoStatus {}
+impl Success for RepoStatus {
+    fn succeeded(&self) -> bool {
+        true
+    }
+}
 
 impl fmt::Display for RepoStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
