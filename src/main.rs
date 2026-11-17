@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 use config::Config;
+use git::CloneCheck;
 
 #[derive(Parser)]
 #[command(
@@ -66,39 +67,41 @@ fn repo(cmd: RepoCommand) -> Result<()> {
     let mut config = Config::load()?;
     match cmd {
         RepoCommand::Add { path, name } => {
-            let toplevel = git::toplevel(&path)
-                .ok()
-                .flatten()
-                .with_context(|| format!("{} is not a git repository", path.display()))?;
+            let clone = match git::check_clone(&path).context("running git")? {
+                CloneCheck::Clone(clone) => clone,
+                CloneCheck::NotARepo => bail!("{} is not a git repository", path.display()),
+                CloneCheck::Subdirectory { toplevel } => bail!(
+                    "{} is not the top level of a clone; did you mean {}?",
+                    path.display(),
+                    toplevel.display()
+                ),
+                CloneCheck::LinkedWorktree => bail!(
+                    "{} is a linked worktree; register the main clone instead",
+                    path.display()
+                ),
+            };
             let name = match name {
                 Some(name) => name,
-                None => toplevel
+                None => clone
                     .file_name()
                     .and_then(|n| n.to_str())
                     .context("cannot derive a Repo name from the path; pass --name")?
                     .to_string(),
             };
-            if let Some(existing) = config.repos.get(&name) {
-                bail!(
-                    "a Repo named '{name}' is already registered ({})",
-                    existing.display()
-                );
-            }
-            println!("registered {name} -> {}", toplevel.display());
-            config.repos.insert(name, toplevel);
-            config.save()
+            config.add_repo(&name, &clone)?;
+            config.save()?;
+            println!("registered {name} -> {}", clone.display());
+            Ok(())
         }
         RepoCommand::List => {
-            let width = config.repos.keys().map(String::len).max().unwrap_or(0);
-            for (name, path) in &config.repos {
+            let width = config.repos().map(|(n, _)| n.len()).max().unwrap_or(0);
+            for (name, path) in config.repos() {
                 println!("{name:width$}  {}", path.display());
             }
             Ok(())
         }
         RepoCommand::Rm { name } => {
-            if config.repos.remove(&name).is_none() {
-                bail!("no Repo named '{name}' is registered");
-            }
+            config.remove_repo(&name)?;
             config.save()?;
             println!("unregistered {name}");
             Ok(())

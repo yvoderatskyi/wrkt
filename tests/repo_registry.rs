@@ -26,14 +26,11 @@ fn repo_add_name_flag_overrides_directory_name() {
         .success();
 
     let out = sb.wrkt(&["repo", "list"]).success().stdout();
-    assert!(
-        out.lines().any(|l| l.starts_with("backend ")),
-        "backend not listed:\n{out}"
-    );
-    assert!(
-        !out.lines().any(|l| l.starts_with("api ")),
-        "api listed:\n{out}"
-    );
+    let names: Vec<_> = out
+        .lines()
+        .filter_map(|l| l.split_whitespace().next())
+        .collect();
+    assert_eq!(names, ["backend"], "listed:\n{out}");
 }
 
 #[test]
@@ -156,7 +153,8 @@ fn config_lives_under_xdg_config_home_when_set() {
     let xdg = sb.home.join("xdg");
     let api = sb.repo("api");
 
-    sb.wrkt_env(
+    sb.wrkt_with(
+        &sb.home,
         &[("XDG_CONFIG_HOME", xdg.to_str().unwrap())],
         &["repo", "add", api.to_str().unwrap()],
     )
@@ -164,4 +162,78 @@ fn config_lives_under_xdg_config_home_when_set() {
 
     assert!(xdg.join("wrkt/config.toml").exists());
     assert!(!sb.config_path().exists());
+}
+
+#[test]
+fn repo_add_rejects_a_subdirectory_of_a_clone() {
+    let sb = Sandbox::new();
+    let api = sb.repo("api");
+    let sub = api.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+
+    let run = sb.wrkt(&["repo", "add", sub.to_str().unwrap()]);
+
+    run.failure();
+    assert!(
+        run.stderr().contains("top level"),
+        "stderr: {}",
+        run.stderr()
+    );
+    assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+}
+
+#[test]
+fn repo_add_rejects_a_linked_worktree() {
+    let sb = Sandbox::new();
+    let api = sb.repo("api");
+    let wt = sb.src.join("api-wt");
+    sb.git(
+        &api,
+        &["worktree", "add", "-b", "side", wt.to_str().unwrap()],
+    );
+
+    let run = sb.wrkt(&["repo", "add", wt.to_str().unwrap()]);
+
+    run.failure();
+    assert!(
+        run.stderr().contains("worktree"),
+        "stderr: {}",
+        run.stderr()
+    );
+    assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+}
+
+#[test]
+fn repo_add_rejects_names_that_cannot_be_a_directory_name() {
+    let sb = Sandbox::new();
+    let api = sb.repo("api");
+
+    for bad in ["", "a/b", ".", ".."] {
+        let run = sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", bad]);
+        run.failure();
+        assert!(
+            run.stderr().contains("invalid Repo name"),
+            "{bad:?}: {}",
+            run.stderr()
+        );
+    }
+    assert_eq!(sb.wrkt(&["repo", "list"]).success().stdout(), "");
+}
+
+#[test]
+fn repo_add_rejects_a_clone_that_is_already_registered() {
+    let sb = Sandbox::new();
+    let api = sb.repo("api");
+    sb.wrkt(&["repo", "add", api.to_str().unwrap()]).success();
+
+    let run = sb.wrkt(&["repo", "add", api.to_str().unwrap(), "--name", "again"]);
+
+    run.failure();
+    assert!(
+        run.stderr().contains("already registered as 'api'"),
+        "stderr: {}",
+        run.stderr()
+    );
+    let out = sb.wrkt(&["repo", "list"]).success().stdout();
+    assert!(!out.contains("again"), "registered twice:\n{out}");
 }

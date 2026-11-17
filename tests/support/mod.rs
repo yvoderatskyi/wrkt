@@ -42,23 +42,20 @@ impl Sandbox {
         self.home.join(".config/wrkt/config.toml")
     }
 
-    /// Run the `wrkt` binary inside the sandbox from `cwd`.
-    pub fn wrkt_in(&self, cwd: &Path, args: &[&str]) -> Run {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_wrkt"));
-        cmd.args(args).current_dir(cwd);
-        self.sandbox_env(&mut cmd);
-        Run(cmd.output().expect("run wrkt"))
-    }
-
     /// Run the `wrkt` binary inside the sandbox from HOME.
     pub fn wrkt(&self, args: &[&str]) -> Run {
-        self.wrkt_in(&self.home, args)
+        self.wrkt_with(&self.home, &[], args)
     }
 
-    /// Run the `wrkt` binary from HOME with extra environment variables.
-    pub fn wrkt_env(&self, env: &[(&str, &str)], args: &[&str]) -> Run {
+    /// Run the `wrkt` binary inside the sandbox from `cwd`.
+    pub fn wrkt_in(&self, cwd: &Path, args: &[&str]) -> Run {
+        self.wrkt_with(cwd, &[], args)
+    }
+
+    /// Run the `wrkt` binary from `cwd` with extra environment variables.
+    pub fn wrkt_with(&self, cwd: &Path, env: &[(&str, &str)], args: &[&str]) -> Run {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_wrkt"));
-        cmd.args(args).current_dir(&self.home);
+        cmd.args(args).current_dir(cwd);
         self.sandbox_env(&mut cmd);
         cmd.envs(env.iter().copied());
         Run(cmd.output().expect("run wrkt"))

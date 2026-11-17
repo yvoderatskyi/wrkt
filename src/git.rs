@@ -25,9 +25,50 @@ fn run(dir: &Path, args: &[&str]) -> std::io::Result<GitOutput> {
     })
 }
 
-/// The top-level directory of the working tree containing `path`, or `None`
-/// if `path` isn't inside a git working tree.
-pub fn toplevel(path: &Path) -> std::io::Result<Option<PathBuf>> {
-    let out = run(path, &["rev-parse", "--show-toplevel"])?;
-    Ok(out.success.then(|| PathBuf::from(out.stdout.trim())))
+/// What a path turned out to be, for registering it as a Repo.
+pub enum CloneCheck {
+    /// The top level of a main working tree: registrable.
+    Clone(PathBuf),
+    /// Not inside any git working tree.
+    NotARepo,
+    /// Inside a working tree whose top level is elsewhere.
+    Subdirectory { toplevel: PathBuf },
+    /// The top level of a linked worktree, not of a clone.
+    LinkedWorktree,
+}
+
+/// Classify `path` as a clone's top level, or say why it isn't one.
+pub fn check_clone(path: &Path) -> std::io::Result<CloneCheck> {
+    let Ok(path) = path.canonicalize() else {
+        return Ok(CloneCheck::NotARepo);
+    };
+    if !path.is_dir() {
+        return Ok(CloneCheck::NotARepo);
+    }
+    let out = run(
+        &path,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+    )?;
+    if !out.success {
+        return Ok(CloneCheck::NotARepo);
+    }
+    let mut lines = out.stdout.lines().map(PathBuf::from);
+    let (Some(toplevel), Some(git_dir), Some(common_dir)) =
+        (lines.next(), lines.next(), lines.next())
+    else {
+        return Ok(CloneCheck::NotARepo);
+    };
+    Ok(if toplevel != path {
+        CloneCheck::Subdirectory { toplevel }
+    } else if git_dir != common_dir {
+        CloneCheck::LinkedWorktree
+    } else {
+        CloneCheck::Clone(toplevel)
+    })
 }

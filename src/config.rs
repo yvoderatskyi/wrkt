@@ -4,25 +4,24 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-
-pub const DEFAULT_BRANCH_TEMPLATE: &str = "{key}";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    /// Directory holding every Workspace.
-    pub workspace_root: PathBuf,
+    /// Directory holding every Workspace. `None` only between parsing and
+    /// `load` filling in the default, which needs `$HOME`.
+    workspace_root: Option<PathBuf>,
     /// Branch name template; `{key}` is replaced with the Workspace name.
     #[serde(default = "default_branch_template")]
     pub branch_template: String,
     /// Registered Repos: name -> clone path. Sorted by name.
     #[serde(default)]
-    pub repos: BTreeMap<String, PathBuf>,
+    repos: BTreeMap<String, PathBuf>,
 }
 
 fn default_branch_template() -> String {
-    DEFAULT_BRANCH_TEMPLATE.to_string()
+    "{key}".to_string()
 }
 
 /// `$XDG_CONFIG_HOME/wrkt/config.toml`, else `$HOME/.config/wrkt/config.toml`.
@@ -42,44 +41,19 @@ fn home() -> Result<PathBuf> {
 }
 
 impl Config {
-    fn default_for_home(home: &Path) -> Self {
-        Config {
-            workspace_root: home.join("wrkt"),
-            branch_template: default_branch_template(),
-            repos: BTreeMap::new(),
-        }
-    }
-
     /// Load the config, or the defaults when the file doesn't exist.
     pub fn load() -> Result<Self> {
         let path = config_path()?;
-        match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                #[derive(Deserialize)]
-                struct Partial {
-                    workspace_root: Option<PathBuf>,
-                    #[serde(default = "default_branch_template")]
-                    branch_template: String,
-                    #[serde(default)]
-                    repos: BTreeMap<String, PathBuf>,
-                }
-                let p: Partial = toml::from_str(&text)
-                    .with_context(|| format!("invalid config {}", path.display()))?;
-                let workspace_root = match p.workspace_root {
-                    Some(root) => root,
-                    None => Self::default_for_home(&home()?).workspace_root,
-                };
-                Ok(Config {
-                    workspace_root,
-                    branch_template: p.branch_template,
-                    repos: p.repos,
-                })
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                Ok(Self::default_for_home(&home()?))
-            }
-            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        let mut config: Config = match std::fs::read_to_string(&path) {
+            Ok(text) => toml::from_str(&text)
+                .with_context(|| format!("invalid config {}", path.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::from_str("")?,
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        if config.workspace_root.is_none() {
+            config.workspace_root = Some(home()?.join("wrkt"));
         }
+        Ok(config)
     }
 
     /// Write the config, creating its directory if needed.
@@ -90,5 +64,37 @@ impl Config {
         }
         let text = toml::to_string(self).context("serializing config")?;
         std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
+    }
+
+    /// Registered Repos as (name, clone path), sorted by name.
+    pub fn repos(&self) -> impl Iterator<Item = (&str, &Path)> {
+        self.repos.iter().map(|(n, p)| (n.as_str(), p.as_path()))
+    }
+
+    /// Register a Repo. Names must be usable as a directory name, and neither
+    /// the name nor the clone may already be registered.
+    pub fn add_repo(&mut self, name: &str, clone: &Path) -> Result<()> {
+        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
+            bail!("invalid Repo name '{name}': it must be usable as a directory name");
+        }
+        if let Some(existing) = self.repos.get(name) {
+            bail!(
+                "a Repo named '{name}' is already registered ({})",
+                existing.display()
+            );
+        }
+        if let Some((other, _)) = self.repos.iter().find(|(_, p)| *p == clone) {
+            bail!("{} is already registered as '{other}'", clone.display());
+        }
+        self.repos.insert(name.to_string(), clone.to_path_buf());
+        Ok(())
+    }
+
+    /// Unregister a Repo.
+    pub fn remove_repo(&mut self, name: &str) -> Result<()> {
+        match self.repos.remove(name) {
+            Some(_) => Ok(()),
+            None => bail!("no Repo named '{name}' is registered"),
+        }
     }
 }
