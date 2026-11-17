@@ -339,6 +339,35 @@ mod new {
     }
 
     #[test]
+    fn rejects_omitted_name_when_not_a_terminal() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+
+        // Act
+        let run = sandbox.wrkt(&["new"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(run.stderr(), "error: no Workspace name given\n");
+    }
+
+    #[test]
+    fn rejects_omitted_repos_when_not_a_terminal() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(run.stderr(), "error: no Repo given\n");
+        assert!(!sandbox.workspace_root().join("PROJ-123").exists());
+    }
+
+    #[test]
     fn rejects_branch_when_git_refuses_name() {
         // Arrange
         let sandbox = Sandbox::new();
@@ -833,6 +862,59 @@ mod add {
             sandbox.git(&worktree, &["branch", "--show-current"]),
             "PROJ-123"
         );
+    }
+
+    #[test]
+    fn rejects_omitted_repos_when_not_a_terminal() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let inside = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&inside, &["add"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(run.stderr(), "error: no Repo given\n");
+    }
+
+    #[test]
+    fn reads_lone_argument_as_repo_when_it_also_names_a_workspace() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "api", "shared"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "api"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("is not inside a Workspace"),
+            "stderr: {}",
+            run.stderr()
+        );
+    }
+
+    #[test]
+    fn rejects_lone_workspace_name_when_not_a_terminal() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["add", "PROJ-123"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(run.stderr(), "error: no Repo given\n");
     }
 
     #[test]

@@ -3,6 +3,7 @@ mod config;
 mod directory_name;
 mod git;
 mod name_column;
+mod prompt;
 mod push;
 mod removal;
 mod repo;
@@ -46,9 +47,8 @@ enum Command {
     /// Create a Workspace with one worktree per Repo
     New {
         /// Workspace name, typically the Jira issue key
-        name: WorkspaceName,
+        name: Option<WorkspaceName>,
         /// Repos to include
-        #[arg(required = true)]
         repos: Vec<RepoName>,
         /// Branch name (defaults to the configured branch template)
         #[arg(long)]
@@ -57,7 +57,7 @@ enum Command {
     /// Add Repos to an existing Workspace
     Add {
         /// Workspace name (defaults to the Workspace containing the current directory), then the Repos to add
-        #[arg(required = true, value_name = "[NAME] REPOS")]
+        #[arg(value_name = "[NAME] REPOS")]
         arguments: Vec<String>,
     },
     /// List every Workspace with its Repos
@@ -108,7 +108,7 @@ enum RepoCommand {
     /// Unregister a Repo
     Rm {
         /// Repo name
-        name: RepoName,
+        name: Option<RepoName>,
     },
 }
 
@@ -116,8 +116,11 @@ fn main() -> ExitCode {
     let Err(error) = run(Cli::parse()) else {
         return ExitCode::SUCCESS;
     };
-    eprintln!("error: {error:#}");
-    ExitCode::FAILURE
+    let code = prompt::exit_code(&error);
+    if code == ExitCode::FAILURE {
+        eprintln!("error: {error:#}");
+    }
+    code
 }
 
 fn run(cli: Cli) -> Result<()> {
@@ -130,7 +133,7 @@ fn run(cli: Cli) -> Result<()> {
             name,
             repos,
             branch,
-        } => new_workspace(&name, &repos, branch),
+        } => new_workspace(name, repos, branch),
         Command::Add { arguments } => extend_workspace(&arguments),
         Command::List => list_workspaces(),
         Command::Status { name } => show_status(name),
@@ -175,13 +178,26 @@ fn remove_workspace(name: Option<WorkspaceName>, safety: Safety) -> Result<()> {
     report.ensure_succeeded()
 }
 
-fn new_workspace(name: &WorkspaceName, repos: &[RepoName], branch: Option<Branch>) -> Result<()> {
-    print!("{}", Config::load()?.create_workspace(name, repos, branch)?);
+fn new_workspace(
+    name: Option<WorkspaceName>,
+    repos: Vec<RepoName>,
+    branch: Option<Branch>,
+) -> Result<()> {
+    let config = Config::load()?;
+    let mut prompter = prompt::for_this_terminal();
+    print!(
+        "{}",
+        config.create_workspace(name, repos, branch, prompter.as_mut())?
+    );
     Ok(())
 }
 
 fn extend_workspace(arguments: &[String]) -> Result<()> {
-    print!("{}", Config::load()?.extend_workspace(arguments)?);
+    let mut prompter = prompt::for_this_terminal();
+    print!(
+        "{}",
+        Config::load()?.extend_workspace(arguments, prompter.as_mut())?
+    );
     Ok(())
 }
 
@@ -193,7 +209,7 @@ fn run_repo(command: RepoCommand) -> Result<()> {
             list_repos(&config);
             Ok(())
         }
-        RepoCommand::Rm { name } => remove_repo(&mut config, &name),
+        RepoCommand::Rm { name } => remove_repo(&mut config, name),
     }
 }
 
@@ -211,8 +227,9 @@ fn list_repos(config: &Config) {
     print!("{}", config.describe_repos());
 }
 
-fn remove_repo(config: &mut Config, name: &RepoName) -> Result<()> {
-    config.remove_repo(name)?;
+fn remove_repo(config: &mut Config, name: Option<RepoName>) -> Result<()> {
+    let mut prompter = prompt::for_this_terminal();
+    let name = config.remove_repo(name, prompter.as_mut())?;
     config.save()?;
     println!("unregistered {name}");
     Ok(())

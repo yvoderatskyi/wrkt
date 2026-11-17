@@ -41,6 +41,8 @@ wrkt new PROJ-123 api web
 cd ~/wrkt/PROJ-123
 ```
 
+In a terminal, leave out the name or the Repos and wrkt asks for them: `wrkt new` prompts for the name, then lets you pick Repos from the registry. `wrkt add` and `wrkt repo rm` prompt the same way. In a script or a pipe, a missing argument is an error instead.
+
 The Workspace name is any string; a Jira issue key is just the usual choice, and wrkt never talks to Jira. Inside a Workspace's directory, every command works out the Workspace from where you are, so the rest of this walkthrough leaves the name out. From anywhere else, pass it: `wrkt sync PROJ-123`.
 
 Commit in each worktree as usual with plain git. Then bring every Repo up to date with `origin/main` and publish:
