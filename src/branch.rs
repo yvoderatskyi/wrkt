@@ -1,3 +1,5 @@
+use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 use anyhow::{Error, Result, ensure};
@@ -30,5 +32,48 @@ impl TryFrom<String> for Branch {
 impl AsRef<str> for Branch {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl fmt::Display for Branch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.pad(&self.0)
+    }
+}
+
+#[derive(Debug)]
+pub enum Resolution {
+    ReusedLocal(Branch),
+    TrackingRemote(Branch),
+    CreatedFromBase(Branch),
+}
+
+impl Resolution {
+    pub fn add_worktree(&self, clone: &Path, worktree: &Path) -> Result<()> {
+        match self {
+            Resolution::ReusedLocal(branch) => {
+                git::add_worktree_on_branch(clone, worktree, &branch.0)
+            }
+            Resolution::TrackingRemote(branch) => {
+                git::add_worktree_tracking_remote(clone, worktree, &branch.0)
+            }
+            Resolution::CreatedFromBase(branch) => {
+                git::add_worktree_from_base(clone, worktree, &branch.0)
+            }
+        }
+    }
+}
+
+impl fmt::Display for Resolution {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Resolution::ReusedLocal(branch) => write!(formatter, "reused local branch {branch}"),
+            Resolution::TrackingRemote(branch) => {
+                write!(formatter, "tracking {}/{branch}", git::REMOTE)
+            }
+            Resolution::CreatedFromBase(branch) => {
+                write!(formatter, "created {branch} from {}", git::BASE_BRANCH)
+            }
+        }
     }
 }

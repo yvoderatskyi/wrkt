@@ -7,7 +7,7 @@ use anyhow::{Context, Error, Result, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
-use crate::repo::{Clones, Registry, RepoName};
+use crate::repo::{Clones, Registry, RepoName, Resolutions};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WorkspaceName(String);
@@ -46,7 +46,7 @@ impl Workspace {
         Workspace { directory, branch }
     }
 
-    pub fn create(&self, clones: &Clones) -> Result<()> {
+    pub fn create(&self, clones: &Clones) -> Result<Resolutions> {
         ensure!(
             !self.directory.exists(),
             "Workspace {} already exists; use `wrkt add` to add Repos to it",

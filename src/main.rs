@@ -91,7 +91,8 @@ fn list_workspaces() -> Result<()> {
 }
 
 fn new_workspace(name: &WorkspaceName, repos: &[RepoName], branch: Option<Branch>) -> Result<()> {
-    Config::load()?.create_workspace(name, repos, branch)
+    print!("{}", Config::load()?.create_workspace(name, repos, branch)?);
+    Ok(())
 }
 
 fn run_repo(command: RepoCommand) -> Result<()> {

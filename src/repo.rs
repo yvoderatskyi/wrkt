@@ -7,7 +7,7 @@ use std::str::FromStr;
 use anyhow::{Context, Error, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::branch::Branch;
+use crate::branch::{Branch, Resolution};
 use crate::directory_name;
 use crate::git;
 
@@ -80,8 +80,20 @@ impl ClonePath {
         git::fetch(&self.0)
     }
 
-    fn add_worktree(&self, worktree: &Path, branch: &Branch) -> Result<()> {
-        git::add_worktree(&self.0, worktree, branch.as_ref())
+    fn add_worktree(&self, worktree: &Path, branch: &Branch) -> Result<Resolution> {
+        let resolution = self.resolve(branch)?;
+        resolution.add_worktree(&self.0, worktree)?;
+        Ok(resolution)
+    }
+
+    fn resolve(&self, branch: &Branch) -> Result<Resolution> {
+        if git::has_local_branch(&self.0, branch.as_ref())? {
+            return Ok(Resolution::ReusedLocal(branch.clone()));
+        }
+        if git::has_remote_branch(&self.0, branch.as_ref())? {
+            return Ok(Resolution::TrackingRemote(branch.clone()));
+        }
+        Ok(Resolution::CreatedFromBase(branch.clone()))
     }
 }
 
@@ -155,9 +167,28 @@ impl Clones<'_> {
         self.0.values().try_for_each(|clone| clone.fetch())
     }
 
-    pub fn add_worktrees(&self, directory: &Path, branch: &Branch) -> Result<()> {
+    pub fn add_worktrees(&self, directory: &Path, branch: &Branch) -> Result<Resolutions> {
         self.0
             .iter()
-            .try_for_each(|(name, clone)| clone.add_worktree(&directory.join(name), branch))
+            .map(|(name, clone)| {
+                Ok((
+                    (*name).clone(),
+                    clone.add_worktree(&directory.join(name), branch)?,
+                ))
+            })
+            .collect::<Result<_>>()
+            .map(Resolutions)
+    }
+}
+
+#[derive(Debug)]
+pub struct Resolutions(BTreeMap<RepoName, Resolution>);
+
+impl fmt::Display for Resolutions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let width = self.0.keys().map(|name| name.0.len()).max().unwrap_or(0);
+        self.0
+            .iter()
+            .try_for_each(|(name, resolution)| writeln!(formatter, "{name:width$}  {resolution}"))
     }
 }

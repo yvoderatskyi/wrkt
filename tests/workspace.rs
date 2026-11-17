@@ -104,6 +104,116 @@ mod new {
     }
 
     #[test]
+    fn reuses_local_branch_when_it_exists() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        let local_work = sandbox.commit_on_local_branch(&api, "PROJ-123");
+
+        // Act
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Assert
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "PROJ-123"
+        );
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), local_work);
+    }
+
+    #[test]
+    fn tracks_remote_branch_when_no_local_branch() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        let remote_work = sandbox.push_colleague_commit("api", "PROJ-123");
+
+        // Act
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Assert
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), remote_work);
+        let upstream = sandbox.git(
+            &api,
+            &[
+                "for-each-ref",
+                "--format=%(upstream)",
+                "refs/heads/PROJ-123",
+            ],
+        );
+        assert_eq!(upstream, "refs/remotes/origin/PROJ-123");
+    }
+
+    #[test]
+    fn names_resolution_per_repo_when_cases_differ() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.registered_repo("web");
+        sandbox.registered_repo("shared");
+        sandbox.commit_on_local_branch(&api, "PROJ-123");
+        sandbox.push_colleague_commit("web", "PROJ-123");
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123", "api", "web", "shared"]);
+
+        // Assert
+        let output = run.success().stdout();
+        let expected = [
+            ("api", "reused local branch PROJ-123"),
+            ("web", "tracking origin/PROJ-123"),
+            ("shared", "created PROJ-123 from origin/main"),
+        ];
+        let missing: Vec<_> = expected
+            .iter()
+            .filter(|(repo, case)| {
+                !output
+                    .lines()
+                    .any(|line| line.starts_with(repo) && line.contains(case))
+            })
+            .collect();
+        assert!(missing.is_empty(), "missing {missing:?} in:\n{output}");
+    }
+
+    #[test]
+    fn creates_branch_from_origin_main_when_remote_branch_deleted() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.push_colleague_commit("api", "PROJ-123");
+        sandbox.git(&api, &["fetch", "origin"]);
+        sandbox.delete_origin_branch("api", "PROJ-123");
+
+        // Act
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Assert
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        assert_eq!(
+            sandbox.git(&worktree, &["rev-parse", "HEAD"]),
+            sandbox.git(&api, &["rev-parse", "refs/remotes/origin/main"])
+        );
+    }
+
+    #[test]
+    fn creates_branch_from_origin_main_when_local_branch_shadows_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.git(&api, &["branch", "origin/main"]);
+        let latest = sandbox.advance_origin_main("api");
+
+        // Act
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Assert
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), latest);
+    }
+
+    #[test]
     fn rejects_workspace_when_already_exists() {
         // Arrange
         let sandbox = Sandbox::new();

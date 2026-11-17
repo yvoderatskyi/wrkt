@@ -110,6 +110,10 @@ impl Sandbox {
     }
 
     pub fn advance_origin_main(&self, name: &str) -> String {
+        self.push_colleague_commit(name, "main")
+    }
+
+    pub fn push_colleague_commit(&self, name: &str, branch: &str) -> String {
         let remotes = self.remotes();
         let origin = remotes.join(format!("{name}.git"));
         let colleague = remotes.join(format!("{name}-colleague"));
@@ -124,9 +128,24 @@ impl Sandbox {
         std::fs::write(colleague.join("CHANGE.md"), "colleague change\n").unwrap();
         self.git(&colleague, &["add", "."]);
         self.git(&colleague, &["commit", "-m", "colleague change"]);
-        self.git(&colleague, &["push", "origin", "main"]);
+        self.git(&colleague, &["push", "origin", &format!("HEAD:{branch}")]);
         let commit = self.git(&colleague, &["rev-parse", "HEAD"]);
         std::fs::remove_dir_all(&colleague).unwrap();
+        commit
+    }
+
+    pub fn delete_origin_branch(&self, name: &str, branch: &str) {
+        let origin = self.remotes().join(format!("{name}.git"));
+        self.git(&origin, &["branch", "-D", branch]);
+    }
+
+    pub fn commit_on_local_branch(&self, clone: &Path, branch: &str) -> String {
+        self.git(clone, &["switch", "-c", branch]);
+        std::fs::write(clone.join("LOCAL.md"), "local work\n").unwrap();
+        self.git(clone, &["add", "."]);
+        self.git(clone, &["commit", "-m", "local work"]);
+        let commit = self.git(clone, &["rev-parse", "HEAD"]);
+        self.git(clone, &["switch", "main"]);
         commit
     }
 

@@ -3,7 +3,9 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 
-const BASE_BRANCH: &str = "origin/main";
+pub const REMOTE: &str = "origin";
+pub const BASE_BRANCH: &str = "origin/main";
+const BASE_REFERENCE: &str = "refs/remotes/origin/main";
 
 #[derive(Debug)]
 enum GitOutput {
@@ -91,10 +93,49 @@ pub fn is_valid_branch_name(name: &str) -> Result<bool> {
 }
 
 pub fn fetch(clone: &Path) -> Result<()> {
-    run_checked(clone, &["fetch", "origin"])
+    run_checked(clone, &["fetch", "--prune", REMOTE])
 }
 
-pub fn add_worktree(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
+pub fn has_local_branch(clone: &Path, branch: &str) -> Result<bool> {
+    has_reference(clone, &format!("refs/heads/{branch}"))
+}
+
+pub fn has_remote_branch(clone: &Path, branch: &str) -> Result<bool> {
+    has_reference(clone, &remote_reference(branch))
+}
+
+fn has_reference(clone: &Path, reference: &str) -> Result<bool> {
+    let output = run(clone, &["show-ref", "--verify", "--quiet", reference])?;
+    Ok(matches!(output, GitOutput::Succeeded(_)))
+}
+
+fn remote_reference(branch: &str) -> String {
+    format!("refs/remotes/{REMOTE}/{branch}")
+}
+
+pub fn add_worktree_tracking_remote(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
+    let worktree_argument = worktree.to_string_lossy();
+    let remote_branch = remote_reference(branch);
+    run_checked(
+        clone,
+        &[
+            "worktree",
+            "add",
+            "--track",
+            "-b",
+            branch,
+            &worktree_argument,
+            &remote_branch,
+        ],
+    )
+}
+
+pub fn add_worktree_on_branch(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
+    let worktree_argument = worktree.to_string_lossy();
+    run_checked(clone, &["worktree", "add", &worktree_argument, branch])
+}
+
+pub fn add_worktree_from_base(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
     let worktree_argument = worktree.to_string_lossy();
     run_checked(
         clone,
@@ -105,7 +146,7 @@ pub fn add_worktree(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
             "-b",
             branch,
             &worktree_argument,
-            BASE_BRANCH,
+            BASE_REFERENCE,
         ],
     )
 }

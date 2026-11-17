@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
-use crate::repo::{ClonePath, Registry, RepoName};
+use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
 use crate::workspace::{Workspace, WorkspaceName, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -124,7 +124,7 @@ impl Config {
         name: &WorkspaceName,
         repos: &[RepoName],
         branch: Option<Branch>,
-    ) -> Result<()> {
+    ) -> Result<Resolutions> {
         let workspace = self.workspace.workspace(name, branch)?;
         let clones = self.repos.select(repos)?;
         workspace.create(&clones)
