@@ -16,7 +16,7 @@ impl Sandbox {
         let base = temporary
             .path()
             .canonicalize()
-            .expect("canonicalize temporary directory");
+            .expect("resolve the temporary directory's symlinks (macOS /var -> /private/var) so paths match what git reports");
         let sandbox = Sandbox {
             _temporary: temporary,
             base,

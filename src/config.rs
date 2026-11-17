@@ -25,7 +25,8 @@ struct WorkspaceRoot(PathBuf);
 
 impl Default for WorkspaceRoot {
     fn default() -> Self {
-        WorkspaceRoot(std::env::home_dir().unwrap_or_default().join("wrkt"))
+        let home_or_working_directory = std::env::home_dir().unwrap_or_default();
+        WorkspaceRoot(home_or_working_directory.join("wrkt"))
     }
 }
 

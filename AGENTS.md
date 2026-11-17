@@ -14,7 +14,7 @@ The five default triage labels, recorded on each issue file's `Status:` line. Se
 
 ### Rust
 
-Writing, refactoring or reviewing Rust: load the `rust-skills` skill and apply its rules to the code you touch. The rules below, an ADR or the spec's Implementation Decisions win over a conflicting skill rule.
+Reviewing Rust: load the `rust-skills` skill and check the diff against its rules. The rules below, an ADR or the spec's Implementation Decisions win over a conflicting skill rule.
 
 - Error handling uses `anyhow`: return `anyhow::Result`, attach `.context()` at fallible calls, and raise with `ensure!` for a failed condition check or `bail!` otherwise.
 - Code follows Object Calisthenics: one indentation level per function, no `else`, primitives and strings wrapped in domain types, first-class collections, one dot per line (a fluent chain on one value such as an iterator or builder counts as one), no abbreviations, small entities, at most two fields per struct, and behaviour instead of getters and setters.
