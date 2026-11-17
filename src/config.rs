@@ -1,4 +1,3 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
@@ -23,6 +22,7 @@ pub struct Config {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct WorkspaceSettings {
+    #[serde(skip_serializing_if = "WorkspaceRoot::is_default")]
     root: WorkspaceRoot,
     branch_template: BranchTemplate,
 }
@@ -50,7 +50,7 @@ impl WorkspaceSettings {
         ensure!(
             directory.is_dir(),
             "no Workspace named '{name}' under {}",
-            self.root
+            root.display()
         );
         Ok(directory)
     }
@@ -70,18 +70,28 @@ impl WorkspaceSettings {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(transparent)]
-struct WorkspaceRoot(PathBuf);
+struct WorkspaceRoot(Option<PathBuf>);
 
 impl WorkspaceRoot {
-    fn resolved(&self) -> Result<PathBuf> {
-        if !self.0.exists() {
-            return Ok(self.0.clone());
-        }
+    fn is_default(&self) -> bool {
+        self.0.is_none()
+    }
+
+    fn configured_or_default(&self) -> Result<PathBuf> {
         self.0
-            .canonicalize()
-            .with_context(|| format!("resolving Workspace root {}", self.0.display()))
+            .clone()
+            .map_or_else(|| Ok(home()?.join("wrkt")), Ok)
+    }
+
+    fn resolved(&self) -> Result<PathBuf> {
+        let root = self.configured_or_default()?;
+        if !root.exists() {
+            return Ok(root);
+        }
+        root.canonicalize()
+            .with_context(|| format!("resolving Workspace root {}", root.display()))
     }
 
     fn workspace_containing(&self, directory: &Path) -> Result<WorkspaceName> {
@@ -101,19 +111,6 @@ fn not_inside_workspace(directory: &Path, root: &Path) -> String {
         directory.display(),
         root.display()
     )
-}
-
-impl fmt::Display for WorkspaceRoot {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.display().fmt(formatter)
-    }
-}
-
-impl Default for WorkspaceRoot {
-    fn default() -> Self {
-        let home_or_working_directory = std::env::home_dir().unwrap_or_default();
-        WorkspaceRoot(home_or_working_directory.join("wrkt"))
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

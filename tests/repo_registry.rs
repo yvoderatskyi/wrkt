@@ -289,7 +289,7 @@ mod config {
     }
 
     #[test]
-    fn creates_file_with_defaults_when_first_written() {
+    fn creates_file_without_default_root_when_first_written() {
         // Arrange
         let sandbox = Sandbox::new();
         let api = sandbox.repo("api");
@@ -301,15 +301,27 @@ mod config {
 
         // Assert
         let text = std::fs::read_to_string(sandbox.config_path()).expect("config written");
-        let default_root = sandbox.home().join("wrkt");
-        assert!(
-            text.contains(default_root.to_str().unwrap()),
-            "default root missing:\n{text}"
-        );
+        assert!(!text.contains("root"), "default root written:\n{text}");
         assert!(
             text.contains("{key}"),
             "default branch template missing:\n{text}"
         );
+    }
+
+    #[test]
+    fn creates_workspaces_under_home_when_no_root_configured() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.repo("api");
+        sandbox
+            .wrkt(&["repo", "add", api.to_str().unwrap()])
+            .success();
+
+        // Act
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Assert
+        assert!(sandbox.home().join("wrkt/PROJ-123/api").is_dir());
     }
 
     #[test]
@@ -355,6 +367,31 @@ mod config {
         // Assert
         assert!(xdg_config_home.join("wrkt/config.toml").exists());
         assert!(!sandbox.config_path().exists());
+    }
+
+    #[test]
+    fn rejects_default_root_when_home_unset() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let xdg_config_home = sandbox.home().join("xdg_config_home");
+
+        // Act
+        let run = sandbox.wrkt_with(
+            &sandbox.home(),
+            &[
+                ("XDG_CONFIG_HOME", xdg_config_home.to_str().unwrap()),
+                ("HOME", ""),
+            ],
+            &["list"],
+        );
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("HOME is not set"),
+            "stderr: {}",
+            run.stderr()
+        );
     }
 
     #[test]
