@@ -9,6 +9,7 @@ mod repo;
 mod report;
 mod status;
 mod sync;
+mod worker;
 mod workspace;
 
 use std::path::{Path, PathBuf};

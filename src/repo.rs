@@ -3,6 +3,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::thread::{Scope, ScopedJoinHandle};
 
 use anyhow::{Context, Error, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use crate::branch::{Branch, Resolution};
 use crate::directory_name;
 use crate::git;
 use crate::name_column::NameColumn;
+use crate::worker::joined;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -193,11 +195,23 @@ pub struct Clones<'registry>(BTreeMap<&'registry RepoName, &'registry ClonePath>
 
 impl<'registry> Clones<'registry> {
     pub fn fetch(&self) -> Result<()> {
-        self.0.iter().try_for_each(|(name, clone)| {
-            clone
-                .fetch()
-                .with_context(|| format!("fetching Repo '{name}'"))
+        std::thread::scope(|scope| {
+            self.spawn_fetches(scope)
+                .into_iter()
+                .try_for_each(|(name, fetch)| {
+                    joined(fetch).with_context(|| format!("fetching Repo '{name}'"))
+                })
         })
+    }
+
+    fn spawn_fetches<'scope>(
+        &'scope self,
+        scope: &'scope Scope<'scope, '_>,
+    ) -> Vec<(&'registry RepoName, ScopedJoinHandle<'scope, Result<()>>)> {
+        self.0
+            .iter()
+            .map(|(name, clone)| (*name, scope.spawn(move || clone.fetch())))
+            .collect()
     }
 
     pub fn ensure_absent_from(&self, directory: &Path) -> Result<()> {

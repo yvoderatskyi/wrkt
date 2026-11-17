@@ -3,9 +3,9 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use std::thread::{Scope, ScopedJoinHandle};
+use std::thread::Scope;
 
-use anyhow::{Context, Error, Result, anyhow, bail, ensure};
+use anyhow::{Context, Error, Result, bail, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
@@ -16,6 +16,7 @@ use crate::repo::{Clones, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
 use crate::sync::SyncOutcome;
+use crate::worker::joined;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WorkspaceName(String);
@@ -220,12 +221,6 @@ impl Members {
 fn member(worktree: PathBuf, registry: &Registry) -> Result<Option<(RepoName, PathBuf)>> {
     let owner = registry.owner_of(&worktree)?.cloned();
     Ok(owner.map(|name| (name, worktree)))
-}
-
-fn joined<Outcome>(handle: ScopedJoinHandle<'_, Result<Outcome>>) -> Result<Outcome> {
-    handle
-        .join()
-        .unwrap_or_else(|_| Err(anyhow!("the worker thread panicked")))
 }
 
 struct RepoNames(BTreeSet<RepoName>);
