@@ -3,11 +3,15 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use anyhow::{Context, Error, Result, ensure};
+use std::thread::{Scope, ScopedJoinHandle};
+
+use anyhow::{Context, Error, Result, anyhow, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
 use crate::repo::{Clones, Registry, RepoName, Resolutions};
+use crate::report::Report;
+use crate::status::RepoStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WorkspaceName(String);
@@ -109,6 +113,56 @@ impl fmt::Display for Workspaces {
             .iter()
             .try_for_each(|(name, repos)| writeln!(formatter, "{name:width$}  {repos}"))
     }
+}
+
+pub struct Members(BTreeMap<RepoName, PathBuf>);
+
+impl Members {
+    pub fn discover(workspace: &Path, registry: &Registry) -> Result<Self> {
+        let members = subdirectories(workspace)?
+            .into_iter()
+            .map(|child| member(workspace.join(child), registry))
+            .filter_map(Result::transpose)
+            .collect::<Result<_>>()?;
+        Ok(Members(members))
+    }
+
+    pub fn status(&self) -> Report<RepoStatus> {
+        self.in_parallel(RepoStatus::read)
+    }
+
+    fn in_parallel<Outcome: Send>(
+        &self,
+        work: impl Fn(&Path) -> Result<Outcome> + Sync,
+    ) -> Report<Outcome> {
+        std::thread::scope(|scope| self.spawn_each(scope, &work).collect())
+    }
+
+    fn spawn_each<'scope, Outcome: Send + 'scope>(
+        &'scope self,
+        scope: &'scope Scope<'scope, '_>,
+        work: &'scope (impl Fn(&Path) -> Result<Outcome> + Sync),
+    ) -> impl Iterator<Item = (RepoName, Result<Outcome>)> {
+        let handles: Vec<_> = self
+            .0
+            .iter()
+            .map(|(name, worktree)| (name, scope.spawn(move || work(worktree))))
+            .collect();
+        handles
+            .into_iter()
+            .map(|(name, handle)| (name.clone(), joined(handle)))
+    }
+}
+
+fn member(worktree: PathBuf, registry: &Registry) -> Result<Option<(RepoName, PathBuf)>> {
+    let owner = registry.owner_of(&worktree)?.cloned();
+    Ok(owner.map(|name| (name, worktree)))
+}
+
+fn joined<Outcome>(handle: ScopedJoinHandle<'_, Result<Outcome>>) -> Result<Outcome> {
+    handle
+        .join()
+        .unwrap_or_else(|_| Err(anyhow!("the worker thread panicked")))
 }
 
 struct RepoNames(BTreeSet<RepoName>);

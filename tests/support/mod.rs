@@ -149,6 +149,25 @@ impl Sandbox {
         commit
     }
 
+    pub fn commit_in(&self, worktree: &Path, file: &str) -> String {
+        std::fs::write(worktree.join(file), format!("{file}\n")).unwrap();
+        self.git(worktree, &["add", "."]);
+        self.git(worktree, &["commit", "-m", file]);
+        self.git(worktree, &["rev-parse", "HEAD"])
+    }
+
+    pub fn rebase_into_conflict(&self, name: &str, clone: &Path, worktree: &Path) {
+        self.commit_in(worktree, "CHANGE.md");
+        self.advance_origin_main(name);
+        self.git(clone, &["fetch", "origin"]);
+        let mut command = Command::new("git");
+        command
+            .args(["rebase", "origin/main"])
+            .current_dir(worktree);
+        self.isolate(&mut command);
+        Run(command.output().expect("run git")).failure();
+    }
+
     pub fn break_origin(&self, clone: &Path) {
         self.git(
             clone,
@@ -190,6 +209,16 @@ impl Run {
 
     pub fn stderr(&self) -> String {
         String::from_utf8_lossy(&self.0.stderr).into_owned()
+    }
+
+    #[track_caller]
+    pub fn line_for(&self, repo: &str) -> String {
+        let stdout = self.stdout();
+        let line = stdout
+            .lines()
+            .find(|line| line.split_whitespace().next() == Some(repo));
+        line.unwrap_or_else(|| panic!("no line for {repo} in {self}"))
+            .to_string()
     }
 
     pub fn succeeded(&self) -> bool {

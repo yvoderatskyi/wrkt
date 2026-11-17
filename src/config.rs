@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
 use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
-use crate::workspace::{Workspace, WorkspaceName, Workspaces};
+use crate::report::Report;
+use crate::status::RepoStatus;
+use crate::workspace::{Members, Workspace, WorkspaceName, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,6 +32,16 @@ impl WorkspaceSettings {
     }
 
     fn existing(&self, name: &WorkspaceName, registry: &Registry) -> Result<Workspace> {
+        Workspace::existing(self.directory_of(name)?, registry, || {
+            self.branch_template.branch_for(name)
+        })
+    }
+
+    fn members(&self, name: &WorkspaceName, registry: &Registry) -> Result<Members> {
+        Members::discover(&self.directory_of(name)?, registry)
+    }
+
+    fn directory_of(&self, name: &WorkspaceName) -> Result<PathBuf> {
         let root = self.root.resolved()?;
         let directory = root.join(name);
         ensure!(
@@ -37,9 +49,7 @@ impl WorkspaceSettings {
             "no Workspace named '{name}' under {}",
             self.root
         );
-        Workspace::existing(directory, registry, || {
-            self.branch_template.branch_for(name)
-        })
+        Ok(directory)
     }
 
     fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
@@ -205,6 +215,12 @@ impl Config {
 
     pub fn workspaces(&self) -> Result<Workspaces> {
         self.workspace.discover(&self.repos)
+    }
+
+    pub fn status(&self, name: Option<WorkspaceName>) -> Result<Report<RepoStatus>> {
+        let name = self.resolve_workspace(name)?;
+        let members = self.workspace.members(&name, &self.repos)?;
+        Ok(members.status())
     }
 
     pub fn describe_repos(&self) -> String {

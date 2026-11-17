@@ -3,6 +3,8 @@ mod config;
 mod directory_name;
 mod git;
 mod repo;
+mod report;
+mod status;
 mod workspace;
 
 use std::path::{Path, PathBuf};
@@ -22,6 +24,9 @@ use workspace::WorkspaceName;
     about = "Manage git worktrees across several Repos as one Workspace"
 )]
 struct Cli {
+    /// Stream every git command and its output to stderr
+    #[arg(short, long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -50,6 +55,11 @@ enum Command {
     },
     /// List every Workspace with its Repos
     List,
+    /// Show where each Repo in a Workspace stands, without fetching
+    Status {
+        /// Workspace name (defaults to the Workspace containing the current directory)
+        name: Option<WorkspaceName>,
+    },
     /// Print the Workspace a command would act on
     #[command(hide = true)]
     Which {
@@ -86,6 +96,9 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if cli.verbose {
+        git::stream_output();
+    }
     match cli.command {
         Command::Repo(command) => run_repo(command),
         Command::New {
@@ -95,6 +108,7 @@ fn run(cli: Cli) -> Result<()> {
         } => new_workspace(&name, &repos, branch),
         Command::Add { arguments } => extend_workspace(&arguments),
         Command::List => list_workspaces(),
+        Command::Status { name } => show_status(name),
         Command::Which { name } => print_workspace(name),
     }
 }
@@ -107,6 +121,12 @@ fn print_workspace(name: Option<WorkspaceName>) -> Result<()> {
 fn list_workspaces() -> Result<()> {
     print!("{}", Config::load()?.workspaces()?);
     Ok(())
+}
+
+fn show_status(name: Option<WorkspaceName>) -> Result<()> {
+    let report = Config::load()?.status(name)?;
+    print!("{report}");
+    report.ensure_succeeded()
 }
 
 fn new_workspace(name: &WorkspaceName, repos: &[RepoName], branch: Option<Branch>) -> Result<()> {

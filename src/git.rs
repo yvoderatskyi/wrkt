@@ -1,11 +1,20 @@
 use std::ffi::OsStr;
+use std::fmt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail, ensure};
 
 pub const REMOTE: &str = "origin";
 pub const BASE_BRANCH: &str = "main";
+
+static STREAMING: AtomicBool = AtomicBool::new(false);
+
+pub fn stream_output() {
+    STREAMING.store(true, Ordering::Relaxed);
+}
 
 #[derive(Debug)]
 enum GitOutput {
@@ -19,10 +28,23 @@ fn run<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Resu
         .current_dir(directory)
         .output()
         .with_context(|| format!("running git {}", describe(arguments)))?;
+    echo(directory, arguments, &output);
     if !output.status.success() {
-        return Ok(GitOutput::Failed(lossy(&output.stderr)));
+        let combined = [output.stdout.as_slice(), output.stderr.as_slice()].concat();
+        return Ok(GitOutput::Failed(lossy(&combined)));
     }
     Ok(GitOutput::Succeeded(lossy(&output.stdout)))
+}
+
+fn echo<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument], output: &Output) {
+    if !STREAMING.load(Ordering::Relaxed) {
+        return;
+    }
+    let mut stderr = std::io::stderr().lock();
+    let command = format!("$ git {}  ({})\n", describe(arguments), directory.display());
+    let _ = stderr.write_all(command.as_bytes());
+    let _ = stderr.write_all(&output.stdout);
+    let _ = stderr.write_all(&output.stderr);
 }
 
 fn describe<Argument: AsRef<OsStr>>(arguments: &[Argument]) -> String {
@@ -105,7 +127,41 @@ pub fn current_branch(worktree: &Path) -> Result<Option<String>> {
         bail!("git branch --show-current failed in {}", worktree.display());
     };
     let branch = stdout.trim();
-    Ok((!branch.is_empty()).then(|| branch.to_string()))
+    if !branch.is_empty() {
+        return Ok(Some(branch.to_string()));
+    }
+    branch_being_rebased(worktree)
+}
+
+fn branch_being_rebased(worktree: &Path) -> Result<Option<String>> {
+    let Some(state) = rebase_state_directory(worktree)? else {
+        return Ok(None);
+    };
+    let head_name = state.join("head-name");
+    let reference = std::fs::read_to_string(&head_name)
+        .with_context(|| format!("reading {}", head_name.display()))?;
+    let branch = reference.trim().strip_prefix("refs/heads/");
+    Ok(branch.map(str::to_string))
+}
+
+pub fn is_rebasing(worktree: &Path) -> Result<bool> {
+    Ok(rebase_state_directory(worktree)?.is_some())
+}
+
+fn rebase_state_directory(worktree: &Path) -> Result<Option<PathBuf>> {
+    let stdout = run_reading(
+        worktree,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "rebase-merge",
+            "--git-path",
+            "rebase-apply",
+        ],
+    )?;
+    let directory = stdout.lines().map(PathBuf::from).find(|path| path.is_dir());
+    Ok(directory)
 }
 
 pub fn fetch(clone: &Path) -> Result<()> {
@@ -154,8 +210,55 @@ fn add_worktree(clone: &Path, options: &[&str], worktree: &Path, start: &str) ->
 }
 
 fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {
-    let GitOutput::Failed(stderr) = run(directory, arguments)? else {
-        return Ok(());
-    };
-    bail!("git {} failed: {}", describe(arguments), stderr.trim())
+    run_reading(directory, arguments).map(drop)
+}
+
+pub fn has_uncommitted_changes(worktree: &Path) -> Result<bool> {
+    let stdout = run_reading(worktree, &["status", "--porcelain"])?;
+    Ok(!stdout.trim().is_empty())
+}
+
+fn run_reading<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<String> {
+    match run(directory, arguments)? {
+        GitOutput::Succeeded(stdout) => Ok(stdout),
+        GitOutput::Failed(output) => bail!("git {} failed: {}", describe(arguments), output.trim()),
+    }
+}
+
+pub struct Divergence {
+    ahead: u32,
+    behind: u32,
+}
+
+impl Divergence {
+    pub fn of_branch_from_remote(
+        worktree: &Path,
+        branch: Option<&str>,
+        remote_branch: &str,
+    ) -> Result<Self> {
+        let tip = branch.map_or_else(
+            || "HEAD".to_string(),
+            |branch| format!("refs/heads/{branch}"),
+        );
+        let range = format!("{tip}...{}", remote_reference(remote_branch));
+        let stdout = run_reading(worktree, &["rev-list", "--left-right", "--count", &range])?;
+        Divergence::parse(&stdout)
+            .with_context(|| format!("git rev-list printed unexpected counts '{}'", stdout.trim()))
+    }
+
+    fn parse(counts: &str) -> Option<Self> {
+        let mut counts = counts.split_whitespace().map(str::parse);
+        let (Some(Ok(ahead)), Some(Ok(behind)), None) =
+            (counts.next(), counts.next(), counts.next())
+        else {
+            return None;
+        };
+        Some(Divergence { ahead, behind })
+    }
+}
+
+impl fmt::Display for Divergence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "+{} -{}", self.ahead, self.behind)
+    }
 }

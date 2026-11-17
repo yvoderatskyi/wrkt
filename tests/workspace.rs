@@ -836,3 +836,276 @@ mod add {
         );
     }
 }
+
+mod status {
+    use super::support::Sandbox;
+
+    #[test]
+    fn reports_clean_branch_level_with_base_when_workspace_fresh() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("PROJ-123"), "{line}");
+        assert!(line.contains("clean"), "{line}");
+        assert!(line.contains("origin/main +0 -0"), "{line}");
+        assert!(line.contains("not pushed"), "{line}");
+    }
+
+    #[test]
+    fn reports_dirty_when_worktree_has_uncommitted_changes() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        std::fs::write(worktree.join("README.md"), "edited\n").unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("dirty"), "{line}");
+    }
+
+    #[test]
+    fn counts_commits_ahead_and_behind_origin_main_when_both_moved() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "ONE.md");
+        sandbox.commit_in(&worktree, "TWO.md");
+        sandbox.advance_origin_main("api");
+        sandbox.git(&api, &["fetch", "origin"]);
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("origin/main +2 -1"), "{line}");
+    }
+
+    #[test]
+    fn reads_local_state_without_fetching() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        sandbox.advance_origin_main("api");
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("origin/main +0 -0"), "{line}");
+    }
+
+    #[test]
+    fn counts_commits_ahead_and_behind_remote_branch_when_pushed() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.git(&worktree, &["push", "origin", "PROJ-123"]);
+        sandbox.push_colleague_commit("api", "PROJ-123");
+        sandbox.git(&api, &["fetch", "origin"]);
+        sandbox.commit_in(&worktree, "ONE.md");
+        sandbox.commit_in(&worktree, "TWO.md");
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("origin/PROJ-123 +2 -1"), "{line}");
+        assert!(!line.contains("not pushed"), "{line}");
+    }
+
+    #[test]
+    fn reports_rebase_on_workspace_branch_when_rebase_in_progress() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.rebase_into_conflict("api", &api, &worktree);
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("rebasing"), "{line}");
+        assert!(line.contains("PROJ-123"), "{line}");
+    }
+
+    #[test]
+    fn counts_from_branch_tip_when_rebase_in_progress() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.rebase_into_conflict("api", &api, &worktree);
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("origin/main +1 -1"), "{line}");
+    }
+
+    #[test]
+    fn omits_rebase_when_none_in_progress() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(!line.contains("rebasing"), "{line}");
+    }
+
+    #[test]
+    fn sorts_repos_by_name_when_created_out_of_order() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("web");
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("shared");
+        sandbox
+            .wrkt(&["new", "PROJ-123", "web", "shared", "api"])
+            .success();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        let stdout = run.success().stdout();
+        let repos: Vec<_> = stdout
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .collect();
+        assert_eq!(repos, ["api", "shared", "web"]);
+    }
+
+    #[test]
+    fn reports_failed_repo_with_git_output_under_table_when_git_fails() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-123", "api", "web"]).success();
+        sandbox.git(&api, &["update-ref", "-d", "refs/remotes/origin/main"]);
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        assert!(run.failure().line_for("api").contains("failed"), "{run}");
+        assert!(run.line_for("web").contains("clean"), "{run}");
+        let stdout = run.stdout();
+        let table_end = stdout.find(&run.line_for("web")).unwrap();
+        let git_output = stdout.find("unknown revision").expect("git output shown");
+        assert!(git_output > table_end, "{run}");
+    }
+
+    #[test]
+    fn streams_git_output_when_verbose() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        std::fs::write(worktree.join("UNTRACKED.md"), "new\n").unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["-v", "status", "PROJ-123"]);
+
+        // Assert
+        let stderr = run.success().stderr();
+        assert!(stderr.contains("git status --porcelain"), "{run}");
+        assert!(stderr.contains("UNTRACKED.md"), "{run}");
+    }
+
+    #[test]
+    fn hides_git_output_when_not_verbose() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        std::fs::write(worktree.join("UNTRACKED.md"), "new\n").unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        assert!(!run.success().stderr().contains("UNTRACKED.md"), "{run}");
+        assert!(!run.stdout().contains("UNTRACKED.md"), "{run}");
+    }
+
+    #[test]
+    fn infers_workspace_when_name_omitted_inside_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let inside = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&inside, &["status"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("PROJ-123"), "{run}");
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_outside_workspace_root() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["status"]);
+
+        // Assert
+        assert!(run.failure().stderr().contains("pass a Workspace name"));
+    }
+
+    #[test]
+    fn rejects_workspace_when_missing() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-999"]);
+
+        // Assert
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("no Workspace named 'PROJ-999'")
+        );
+    }
+}
