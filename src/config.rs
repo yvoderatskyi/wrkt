@@ -80,9 +80,7 @@ impl WorkspaceRoot {
     }
 
     fn configured_or_default(&self) -> Result<PathBuf> {
-        self.0
-            .clone()
-            .map_or_else(|| Ok(home()?.join("wrkt")), Ok)
+        self.0.clone().map_or_else(|| Ok(home()?.join("wrkt")), Ok)
     }
 
     fn resolved(&self) -> Result<PathBuf> {
@@ -119,7 +117,7 @@ struct BranchTemplate(String);
 
 impl BranchTemplate {
     fn branch_for(&self, name: &WorkspaceName) -> Result<Branch> {
-        self.0.replace("{key}", &name.to_string()).try_into()
+        self.0.replace("{key}", name.as_ref()).try_into()
     }
 }
 

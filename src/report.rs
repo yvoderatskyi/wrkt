@@ -3,6 +3,7 @@ use std::fmt;
 
 use anyhow::{Error, Result, ensure};
 
+use crate::name_column::NameColumn;
 use crate::repo::RepoName;
 
 pub trait Success {
@@ -51,22 +52,14 @@ impl<Outcome> Report<Outcome> {
             .iter()
             .filter_map(|(name, outcome)| outcome.as_ref().err().map(|error| (name, error)))
     }
-
-    fn name_width(&self) -> usize {
-        self.0
-            .keys()
-            .map(|name| name.to_string().len())
-            .max()
-            .unwrap_or(0)
-    }
 }
 
 impl<Outcome: fmt::Display> fmt::Display for Report<Outcome> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let width = self.name_width();
-        self.0.iter().try_for_each(|(name, outcome)| {
-            writeln!(formatter, "{name:width$}  {}", Summary(outcome))
-        })?;
+        let column = NameColumn::fitting(self.0.keys());
+        self.0
+            .iter()
+            .try_for_each(|(name, outcome)| column.write_row(formatter, name, &Summary(outcome)))?;
         self.failures()
             .try_for_each(|(name, error)| write!(formatter, "\n{name}:\n{error:#}\n"))
     }

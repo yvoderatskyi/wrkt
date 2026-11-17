@@ -445,6 +445,23 @@ mod list {
     }
 
     #[test]
+    fn aligns_repo_column_when_workspace_name_not_ascii() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox
+            .wrkt(&["new", "café", "api", "--branch", "cafe"])
+            .success();
+        sandbox.wrkt(&["new", "ab", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["list"]);
+
+        // Assert
+        assert_eq!(run.success().second_column_offsets(), [6, 6], "{run}");
+    }
+
+    #[test]
     fn shows_nothing_when_workspace_root_missing() {
         // Arrange
         let sandbox = Sandbox::new();
@@ -879,6 +896,24 @@ mod status {
         assert!(line.contains("clean"), "{line}");
         assert!(line.contains("origin/main +0 -0"), "{line}");
         assert!(line.contains("not pushed"), "{line}");
+    }
+
+    #[test]
+    fn aligns_branch_column_when_repo_name_not_ascii() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let web = sandbox.repo("web");
+        sandbox
+            .wrkt(&["repo", "add", web.to_str().unwrap(), "--name", "café"])
+            .success();
+        sandbox.wrkt(&["new", "PROJ-123", "api", "café"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["status", "PROJ-123"]);
+
+        // Assert
+        assert_eq!(run.success().second_column_offsets(), [6, 6], "{run}");
     }
 
     #[test]

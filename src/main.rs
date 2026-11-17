@@ -2,6 +2,7 @@ mod branch;
 mod config;
 mod directory_name;
 mod git;
+mod name_column;
 mod push;
 mod removal;
 mod repo;

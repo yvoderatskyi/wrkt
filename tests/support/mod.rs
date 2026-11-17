@@ -265,6 +265,17 @@ impl Run {
             .to_string()
     }
 
+    pub fn second_column_offsets(&self) -> Vec<usize> {
+        self.stdout()
+            .lines()
+            .map(|line| {
+                let name_end = line.find(' ').unwrap_or(line.len());
+                let gap = line[name_end..].len() - line[name_end..].trim_start().len();
+                line[..name_end + gap].chars().count()
+            })
+            .collect()
+    }
+
     pub fn succeeded(&self) -> bool {
         self.0.status.success()
     }

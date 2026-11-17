@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::branch::{Branch, Resolution};
 use crate::directory_name;
 use crate::git;
+use crate::name_column::NameColumn;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -38,6 +39,12 @@ impl TryFrom<String> for RepoName {
 impl AsRef<Path> for RepoName {
     fn as_ref(&self) -> &Path {
         Path::new(&self.0)
+    }
+}
+
+impl AsRef<str> for RepoName {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -165,10 +172,10 @@ impl Registry {
 
 impl fmt::Display for Registry {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let width = self.0.keys().map(|name| name.0.len()).max().unwrap_or(0);
+        let column = NameColumn::fitting(self.0.keys());
         self.0
             .iter()
-            .try_for_each(|(name, clone)| writeln!(formatter, "{name:width$}  {clone}"))
+            .try_for_each(|(name, clone)| column.write_row(formatter, name, clone))
     }
 }
 
@@ -218,9 +225,9 @@ pub struct Resolutions<'registry>(BTreeMap<&'registry RepoName, Resolution>);
 
 impl fmt::Display for Resolutions<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let width = self.0.keys().map(|name| name.0.len()).max().unwrap_or(0);
+        let column = NameColumn::fitting(self.0.keys());
         self.0
             .iter()
-            .try_for_each(|(name, resolution)| writeln!(formatter, "{name:width$}  {resolution}"))
+            .try_for_each(|(name, resolution)| column.write_row(formatter, name, resolution))
     }
 }

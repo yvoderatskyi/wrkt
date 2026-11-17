@@ -191,6 +191,23 @@ mod repo_add {
         let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
         assert!(!listing.contains("again"), "registered twice:\n{listing}");
     }
+
+    #[test]
+    fn aligns_clone_column_when_name_not_ascii() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let web = sandbox.repo("web");
+        sandbox
+            .wrkt(&["repo", "add", web.to_str().unwrap(), "--name", "café"])
+            .success();
+
+        // Act
+        let run = sandbox.wrkt(&["repo", "list"]);
+
+        // Assert
+        assert_eq!(run.success().second_column_offsets(), [6, 6], "{run}");
+    }
 }
 
 mod repo_rm {

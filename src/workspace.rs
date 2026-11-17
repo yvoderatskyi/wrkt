@@ -9,6 +9,7 @@ use anyhow::{Context, Error, Result, anyhow, bail, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
+use crate::name_column::NameColumn;
 use crate::push::PushOutcome;
 use crate::removal::{Removal, Safety};
 use crate::repo::{Clones, Registry, RepoName, Resolutions};
@@ -34,6 +35,12 @@ impl FromStr for WorkspaceName {
 impl fmt::Display for WorkspaceName {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.pad(&self.0)
+    }
+}
+
+impl AsRef<str> for WorkspaceName {
+    fn as_ref(&self) -> &str {
+        &self.0
     }
 }
 
@@ -119,10 +126,10 @@ impl Workspaces {
 
 impl fmt::Display for Workspaces {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let width = self.0.keys().map(|name| name.0.len()).max().unwrap_or(0);
+        let column = NameColumn::fitting(self.0.keys());
         self.0
             .iter()
-            .try_for_each(|(name, repos)| writeln!(formatter, "{name:width$}  {repos}"))
+            .try_for_each(|(name, repos)| column.write_row(formatter, name, repos))
     }
 }
 
