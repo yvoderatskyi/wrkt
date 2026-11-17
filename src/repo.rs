@@ -162,29 +162,38 @@ impl fmt::Display for Registry {
 
 pub struct Clones<'registry>(BTreeMap<&'registry RepoName, &'registry ClonePath>);
 
-impl Clones<'_> {
+impl<'registry> Clones<'registry> {
     pub fn fetch(&self) -> Result<()> {
-        self.0.values().try_for_each(|clone| clone.fetch())
+        self.0.iter().try_for_each(|(name, clone)| {
+            clone
+                .fetch()
+                .with_context(|| format!("fetching Repo '{name}'"))
+        })
     }
 
-    pub fn add_worktrees(&self, directory: &Path, branch: &Branch) -> Result<Resolutions> {
+    pub fn add_worktrees(
+        &self,
+        directory: &Path,
+        branch: &Branch,
+    ) -> Result<Resolutions<'registry>> {
         self.0
             .iter()
             .map(|(name, clone)| {
-                Ok((
-                    (*name).clone(),
-                    clone.add_worktree(&directory.join(name), branch)?,
-                ))
+                clone
+                    .add_worktree(&directory.join(name), branch)
+                    .with_context(|| format!("adding a worktree for Repo '{name}'"))
+                    .map(|resolution| (*name, resolution))
             })
             .collect::<Result<_>>()
             .map(Resolutions)
     }
 }
 
+#[must_use]
 #[derive(Debug)]
-pub struct Resolutions(BTreeMap<RepoName, Resolution>);
+pub struct Resolutions<'registry>(BTreeMap<&'registry RepoName, Resolution>);
 
-impl fmt::Display for Resolutions {
+impl fmt::Display for Resolutions<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let width = self.0.keys().map(|name| name.0.len()).max().unwrap_or(0);
         self.0

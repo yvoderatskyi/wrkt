@@ -72,7 +72,12 @@ impl fmt::Display for Resolution {
                 write!(formatter, "tracking {}/{branch}", git::REMOTE)
             }
             Resolution::CreatedFromBase(branch) => {
-                write!(formatter, "created {branch} from {}", git::BASE_BRANCH)
+                write!(
+                    formatter,
+                    "created {branch} from {}/{}",
+                    git::REMOTE,
+                    git::BASE_BRANCH
+                )
             }
         }
     }

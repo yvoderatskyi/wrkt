@@ -214,6 +214,46 @@ mod new {
     }
 
     #[test]
+    fn names_repo_when_its_worktree_fails() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let web = sandbox.registered_repo("web");
+        sandbox.git(&web, &["switch", "-c", "PROJ-123"]);
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123", "api", "web"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("adding a worktree for Repo 'web'"),
+            "stderr: {}",
+            run.stderr()
+        );
+    }
+
+    #[test]
+    fn names_repo_when_its_fetch_fails() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        let web = sandbox.registered_repo("web");
+        sandbox.break_origin(&web);
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123", "api", "web"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("fetching Repo 'web'"),
+            "stderr: {}",
+            run.stderr()
+        );
+    }
+
+    #[test]
     fn rejects_workspace_when_already_exists() {
         // Arrange
         let sandbox = Sandbox::new();

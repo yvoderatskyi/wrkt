@@ -46,7 +46,7 @@ impl Workspace {
         Workspace { directory, branch }
     }
 
-    pub fn create(&self, clones: &Clones) -> Result<Resolutions> {
+    pub fn create<'registry>(&self, clones: &Clones<'registry>) -> Result<Resolutions<'registry>> {
         ensure!(
             !self.directory.exists(),
             "Workspace {} already exists; use `wrkt add` to add Repos to it",

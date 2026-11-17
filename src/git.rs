@@ -1,11 +1,11 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 
 pub const REMOTE: &str = "origin";
-pub const BASE_BRANCH: &str = "origin/main";
-const BASE_REFERENCE: &str = "refs/remotes/origin/main";
+pub const BASE_BRANCH: &str = "main";
 
 #[derive(Debug)]
 enum GitOutput {
@@ -13,16 +13,24 @@ enum GitOutput {
     Failed(String),
 }
 
-fn run(directory: &Path, arguments: &[&str]) -> Result<GitOutput> {
+fn run<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<GitOutput> {
     let output = Command::new("git")
         .args(arguments)
         .current_dir(directory)
         .output()
-        .with_context(|| format!("running git {}", arguments.join(" ")))?;
+        .with_context(|| format!("running git {}", describe(arguments)))?;
     if !output.status.success() {
         return Ok(GitOutput::Failed(lossy(&output.stderr)));
     }
     Ok(GitOutput::Succeeded(lossy(&output.stdout)))
+}
+
+fn describe<Argument: AsRef<OsStr>>(arguments: &[Argument]) -> String {
+    let words: Vec<_> = arguments
+        .iter()
+        .map(|argument| argument.as_ref().to_string_lossy())
+        .collect();
+    words.join(" ")
 }
 
 fn lossy(bytes: &[u8]) -> String {
@@ -114,46 +122,32 @@ fn remote_reference(branch: &str) -> String {
 }
 
 pub fn add_worktree_tracking_remote(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
-    let worktree_argument = worktree.to_string_lossy();
-    let remote_branch = remote_reference(branch);
-    run_checked(
-        clone,
-        &[
-            "worktree",
-            "add",
-            "--track",
-            "-b",
-            branch,
-            &worktree_argument,
-            &remote_branch,
-        ],
-    )
+    let start = remote_reference(branch);
+    add_worktree(clone, &["--track", "-b", branch], worktree, &start)
 }
 
 pub fn add_worktree_on_branch(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
-    let worktree_argument = worktree.to_string_lossy();
-    run_checked(clone, &["worktree", "add", &worktree_argument, branch])
+    add_worktree(clone, &[], worktree, branch)
 }
 
 pub fn add_worktree_from_base(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
-    let worktree_argument = worktree.to_string_lossy();
-    run_checked(
-        clone,
-        &[
-            "worktree",
-            "add",
-            "--no-track",
-            "-b",
-            branch,
-            &worktree_argument,
-            BASE_REFERENCE,
-        ],
-    )
+    let start = remote_reference(BASE_BRANCH);
+    add_worktree(clone, &["--no-track", "-b", branch], worktree, &start)
 }
 
-fn run_checked(directory: &Path, arguments: &[&str]) -> Result<()> {
+fn add_worktree(clone: &Path, options: &[&str], worktree: &Path, start: &str) -> Result<()> {
+    let arguments: Vec<&OsStr> = ["worktree", "add"]
+        .iter()
+        .chain(options)
+        .map(OsStr::new)
+        .chain([worktree.as_os_str(), OsStr::new(start)])
+        .collect();
+    run_checked(clone, &arguments)
+}
+
+fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {
     let GitOutput::Failed(stderr) = run(directory, arguments)? else {
         return Ok(());
     };
-    bail!("git {} failed: {}", arguments.join(" "), stderr.trim())
+    bail!("git {} failed: {}", describe(arguments), stderr.trim())
 }

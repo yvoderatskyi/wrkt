@@ -124,7 +124,7 @@ impl Config {
         name: &WorkspaceName,
         repos: &[RepoName],
         branch: Option<Branch>,
-    ) -> Result<Resolutions> {
+    ) -> Result<Resolutions<'_>> {
         let workspace = self.workspace.workspace(name, branch)?;
         let clones = self.repos.select(repos)?;
         workspace.create(&clones)
