@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::branch::Branch;
 use crate::git::{self, Divergence};
+use crate::report::Success;
 
 pub struct RepoStatus {
     position: Position,
@@ -18,6 +19,8 @@ impl RepoStatus {
         Ok(RepoStatus { position, state })
     }
 }
+
+impl Success for RepoStatus {}
 
 impl fmt::Display for RepoStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

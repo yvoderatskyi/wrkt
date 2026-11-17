@@ -1109,3 +1109,201 @@ mod status {
         );
     }
 }
+
+mod sync {
+    use super::support::Sandbox;
+
+    #[test]
+    fn rebases_repo_onto_origin_main_when_behind() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        let work = sandbox.commit_in(&worktree, "WORK.md");
+        let colleague = sandbox.advance_origin_main("api");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("rebased"), "{run}");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD~1"]), colleague);
+        assert_ne!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), work);
+    }
+
+    #[test]
+    fn reports_up_to_date_when_level_with_origin_main() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("up to date"), "{line}");
+        assert!(!line.contains("rebased"), "{line}");
+    }
+
+    #[test]
+    fn leaves_rebase_in_progress_when_conflicting() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-123", "api", "web"]).success();
+        let api = sandbox.workspace_root().join("PROJ-123/api");
+        let web = sandbox.workspace_root().join("PROJ-123/web");
+        sandbox.commit_in(&api, "CHANGE.md");
+        sandbox.advance_origin_main("api");
+        let colleague = sandbox.advance_origin_main("web");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        assert!(
+            run.failure().line_for("api").contains("conflicted"),
+            "{run}"
+        );
+        assert!(run.line_for("web").contains("rebased"), "{run}");
+        let rebase_head = sandbox.git(&api, &["rev-parse", "--verify", "REBASE_HEAD"]);
+        assert!(!rebase_head.is_empty());
+        assert_eq!(sandbox.git(&web, &["rev-parse", "HEAD"]), colleague);
+    }
+
+    #[test]
+    fn skips_repo_without_stashing_when_dirty() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        let head = sandbox.git(&worktree, &["rev-parse", "HEAD"]);
+        std::fs::write(worktree.join("README.md"), "edited\n").unwrap();
+        sandbox.advance_origin_main("api");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("skipped"), "{line}");
+        assert!(line.contains("uncommitted changes"), "{line}");
+        assert_eq!(sandbox.git(&worktree, &["rev-parse", "HEAD"]), head);
+        assert_eq!(
+            std::fs::read_to_string(worktree.join("README.md")).unwrap(),
+            "edited\n"
+        );
+        assert_eq!(sandbox.git(&worktree, &["stash", "list"]), "");
+    }
+
+    #[test]
+    fn skips_repo_when_rebase_in_progress() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.rebase_into_conflict("api", &api, &worktree);
+        let rebase_head = sandbox.git(&worktree, &["rev-parse", "REBASE_HEAD"]);
+        let conflicted = std::fs::read_to_string(worktree.join("CHANGE.md")).unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        let line = run.success().line_for("api");
+        assert!(line.contains("skipped: rebase in progress"), "{line}");
+        assert_eq!(
+            sandbox.git(&worktree, &["rev-parse", "REBASE_HEAD"]),
+            rebase_head
+        );
+        let after = std::fs::read_to_string(worktree.join("CHANGE.md")).unwrap();
+        assert_eq!(after, conflicted);
+    }
+
+    #[test]
+    fn reports_failed_repo_while_others_sync_when_fetch_fails() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-123", "api", "web"]).success();
+        sandbox.break_origin(&api);
+        sandbox.advance_origin_main("web");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        assert!(run.failure().line_for("api").contains("failed"), "{run}");
+        assert!(run.line_for("web").contains("rebased"), "{run}");
+        assert!(run.stdout().contains("/nonexistent/origin.git"), "{run}");
+    }
+
+    #[test]
+    fn ignores_remote_branch_commits_when_local_branch_behind_remote() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        sandbox.commit_in(&worktree, "WORK.md");
+        sandbox.commit_in(&worktree, "REMOTE_ONLY.md");
+        sandbox.git(&worktree, &["push", "-u", "origin", "PROJ-123"]);
+        sandbox.git(&worktree, &["reset", "--hard", "HEAD~1"]);
+        sandbox.advance_origin_main("api");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("rebased"), "{run}");
+        assert!(worktree.join("CHANGE.md").exists());
+        assert!(worktree.join("WORK.md").exists());
+        assert!(!worktree.join("REMOTE_ONLY.md").exists());
+    }
+
+    #[test]
+    fn infers_workspace_when_run_inside_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&worktree, &["sync"]);
+
+        // Assert
+        assert!(
+            run.success().line_for("api").contains("up to date"),
+            "{run}"
+        );
+    }
+
+    #[test]
+    fn fetches_skipped_repo_when_dirty() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let worktree = sandbox.workspace_root().join("PROJ-123/api");
+        std::fs::write(worktree.join("README.md"), "edited\n").unwrap();
+        let colleague = sandbox.advance_origin_main("api");
+
+        // Act
+        let run = sandbox.wrkt(&["sync", "PROJ-123"]);
+
+        // Assert
+        assert!(run.success().line_for("api").contains("skipped"), "{run}");
+        assert_eq!(
+            sandbox.git(&worktree, &["rev-parse", "origin/main"]),
+            colleague
+        );
+    }
+}

@@ -5,6 +5,7 @@ mod git;
 mod repo;
 mod report;
 mod status;
+mod sync;
 mod workspace;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +61,11 @@ enum Command {
         /// Workspace name (defaults to the Workspace containing the current directory)
         name: Option<WorkspaceName>,
     },
+    /// Fetch every Repo and rebase its worktree onto origin/main
+    Sync {
+        /// Workspace name (defaults to the Workspace containing the current directory)
+        name: Option<WorkspaceName>,
+    },
     /// Print the Workspace a command would act on
     #[command(hide = true)]
     Which {
@@ -109,6 +115,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Add { arguments } => extend_workspace(&arguments),
         Command::List => list_workspaces(),
         Command::Status { name } => show_status(name),
+        Command::Sync { name } => sync_workspace(name),
         Command::Which { name } => print_workspace(name),
     }
 }
@@ -125,6 +132,12 @@ fn list_workspaces() -> Result<()> {
 
 fn show_status(name: Option<WorkspaceName>) -> Result<()> {
     let report = Config::load()?.status(name)?;
+    print!("{report}");
+    report.ensure_succeeded()
+}
+
+fn sync_workspace(name: Option<WorkspaceName>) -> Result<()> {
+    let report = Config::load()?.sync(name)?;
     print!("{report}");
     report.ensure_succeeded()
 }

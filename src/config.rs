@@ -8,6 +8,7 @@ use crate::branch::Branch;
 use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
+use crate::sync::SyncOutcome;
 use crate::workspace::{Members, Workspace, WorkspaceName, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -221,6 +222,12 @@ impl Config {
         let name = self.resolve_workspace(name)?;
         let members = self.workspace.members(&name, &self.repos)?;
         Ok(members.status())
+    }
+
+    pub fn sync(&self, name: Option<WorkspaceName>) -> Result<Report<SyncOutcome>> {
+        let name = self.resolve_workspace(name)?;
+        let members = self.workspace.members(&name, &self.repos)?;
+        Ok(members.sync())
     }
 
     pub fn describe_repos(&self) -> String {

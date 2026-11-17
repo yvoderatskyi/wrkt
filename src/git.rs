@@ -177,7 +177,11 @@ pub fn has_remote_branch(clone: &Path, branch: &str) -> Result<bool> {
 }
 
 fn has_reference(clone: &Path, reference: &str) -> Result<bool> {
-    let output = run(clone, &["show-ref", "--verify", "--quiet", reference])?;
+    succeeds(clone, &["show-ref", "--verify", "--quiet", reference])
+}
+
+fn succeeds(directory: &Path, arguments: &[&str]) -> Result<bool> {
+    let output = run(directory, arguments)?;
     Ok(matches!(output, GitOutput::Succeeded(_)))
 }
 
@@ -207,6 +211,30 @@ fn add_worktree(clone: &Path, options: &[&str], worktree: &Path, start: &str) ->
         .chain([worktree.as_os_str(), OsStr::new(start)])
         .collect();
     run_checked(clone, &arguments)
+}
+
+pub fn contains_base(worktree: &Path) -> Result<bool> {
+    let base = remote_reference(BASE_BRANCH);
+    succeeds(worktree, &["merge-base", "--is-ancestor", &base, "HEAD"])
+}
+
+pub enum RebaseEnd {
+    Completed,
+    Conflicted,
+}
+
+pub fn rebase_onto_base(worktree: &Path) -> Result<RebaseEnd> {
+    let arguments = ["rebase".to_string(), remote_reference(BASE_BRANCH)];
+    let GitOutput::Failed(output) = run(worktree, &arguments)? else {
+        return Ok(RebaseEnd::Completed);
+    };
+    ensure!(
+        is_rebasing(worktree)?,
+        "git {} failed: {}",
+        describe(&arguments),
+        output.trim()
+    );
+    Ok(RebaseEnd::Conflicted)
 }
 
 fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {

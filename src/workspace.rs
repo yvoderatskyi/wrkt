@@ -12,6 +12,7 @@ use crate::directory_name;
 use crate::repo::{Clones, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
+use crate::sync::SyncOutcome;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WorkspaceName(String);
@@ -129,6 +130,10 @@ impl Members {
 
     pub fn status(&self) -> Report<RepoStatus> {
         self.in_parallel(RepoStatus::read)
+    }
+
+    pub fn sync(&self) -> Report<SyncOutcome> {
+        self.in_parallel(SyncOutcome::run_in)
     }
 
     fn in_parallel<Outcome: Send>(

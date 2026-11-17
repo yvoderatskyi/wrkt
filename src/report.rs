@@ -5,6 +5,12 @@ use anyhow::{Error, Result, ensure};
 
 use crate::repo::RepoName;
 
+pub trait Success {
+    fn succeeded(&self) -> bool {
+        true
+    }
+}
+
 pub struct Report<Outcome>(BTreeMap<RepoName, Result<Outcome>>);
 
 impl<Outcome> FromIterator<(RepoName, Result<Outcome>)> for Report<Outcome> {
@@ -15,13 +21,27 @@ impl<Outcome> FromIterator<(RepoName, Result<Outcome>)> for Report<Outcome> {
     }
 }
 
-impl<Outcome> Report<Outcome> {
+impl<Outcome: Success> Report<Outcome> {
     pub fn ensure_succeeded(&self) -> Result<()> {
-        let failures = self.failures().count();
-        ensure!(failures == 0, "{failures} of {} Repos failed", self.0.len());
+        let unsuccessful = self
+            .0
+            .values()
+            .filter(|outcome| !succeeded(outcome))
+            .count();
+        ensure!(
+            unsuccessful == 0,
+            "{unsuccessful} of {} Repos did not succeed",
+            self.0.len()
+        );
         Ok(())
     }
+}
 
+fn succeeded<Outcome: Success>(outcome: &Result<Outcome>) -> bool {
+    outcome.as_ref().is_ok_and(Success::succeeded)
+}
+
+impl<Outcome> Report<Outcome> {
     fn failures(&self) -> impl Iterator<Item = (&RepoName, &Error)> {
         self.0
             .iter()
