@@ -150,12 +150,36 @@ impl Members {
         self.in_parallel(PushOutcome::run_in)
     }
 
-    pub fn refuse_removal(&self, safety: Safety) -> Option<Report<Removal>> {
+    pub fn refuse_removal(
+        &self,
+        workspace: &Path,
+        safety: Safety,
+    ) -> Result<Option<Report<Removal>>> {
         if safety.is_forced() {
-            return None;
+            return Ok(None);
         }
+        self.ensure_nothing_else_in(workspace)?;
         let check = self.in_parallel(Removal::check);
-        (!check.succeeded()).then_some(check)
+        Ok((!check.succeeded()).then_some(check))
+    }
+
+    fn ensure_nothing_else_in(&self, workspace: &Path) -> Result<()> {
+        let strays: Vec<_> = entry_names(workspace)?
+            .into_iter()
+            .filter(|entry| entry != FINDER_METADATA)
+            .filter(|entry| !self.holds(&workspace.join(entry)))
+            .collect();
+        ensure!(
+            strays.is_empty(),
+            "Workspace {} holds {} outside any Repo; move it out or pass --force",
+            workspace.display(),
+            strays.join(", ")
+        );
+        Ok(())
+    }
+
+    fn holds(&self, worktree: &Path) -> bool {
+        self.0.values().any(|member| member == worktree)
     }
 
     pub fn remove(&self, safety: Safety) -> Report<Removal> {
@@ -221,7 +245,17 @@ impl fmt::Display for RepoNames {
     }
 }
 
+const FINDER_METADATA: &str = ".DS_Store";
+
 fn subdirectories(directory: &Path) -> Result<Vec<String>> {
+    let names = entry_names(directory)?
+        .into_iter()
+        .filter(|name| directory.join(name).is_dir())
+        .collect();
+    Ok(names)
+}
+
+fn entry_names(directory: &Path) -> Result<Vec<String>> {
     let reading = || format!("reading {}", directory.display());
     let entries = std::fs::read_dir(directory)
         .with_context(reading)?
@@ -229,7 +263,6 @@ fn subdirectories(directory: &Path) -> Result<Vec<String>> {
         .with_context(reading)?;
     let names = entries
         .into_iter()
-        .filter(|entry| entry.path().is_dir())
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
     Ok(names)

@@ -1631,4 +1631,24 @@ mod rm {
         assert!(line.contains("unpushed commits"), "{line}");
         assert_eq!(sandbox.git(&api, &["rev-parse", "PROJ-123"]), more);
     }
+
+    #[test]
+    fn removes_nothing_when_workspace_holds_files_outside_any_repo() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let workspace = sandbox.workspace_root().join("PROJ-123");
+        std::fs::write(workspace.join("NOTES.md"), "notes\n").unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["rm", "PROJ-123"]);
+
+        // Assert
+        run.failure();
+        assert!(run.stderr().contains("NOTES.md"), "{run}");
+        assert!(workspace.join("NOTES.md").exists());
+        assert!(workspace.join("api").exists());
+        assert_eq!(sandbox.local_branch(&api, "PROJ-123"), "PROJ-123");
+    }
 }

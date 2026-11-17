@@ -248,7 +248,8 @@ impl Config {
     pub fn remove(&self, name: Option<WorkspaceName>, safety: Safety) -> Result<Report<Removal>> {
         let name = self.resolve_workspace(name)?;
         let members = self.workspace.members(&name, &self.repos)?;
-        if let Some(refusal) = members.refuse_removal(safety) {
+        let directory = self.workspace.directory_of(&name)?;
+        if let Some(refusal) = members.refuse_removal(&directory, safety)? {
             return Ok(refusal);
         }
         let report = members.remove(safety);
