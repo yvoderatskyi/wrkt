@@ -1,0 +1,3 @@
+# Check every Repo before adding any worktree
+
+`new` and `add` check every selected Repo for the failures that can be known up front (the Repo is already in the Workspace, its fetch fails, the branch is already checked out in another worktree) before creating any worktree, as `rm` checks every Repo before removing any. We chose this over rolling back worktrees and branches created in the same run, which would mean undoing git state wrkt created and risks deleting a branch the user made in the meantime, and over keeping partial Workspaces and reporting them, which leaves `new` unretryable. The trade-off: a `git worktree add` that fails for a reason no check anticipates (disk full, a hook) can still leave earlier worktrees behind.
