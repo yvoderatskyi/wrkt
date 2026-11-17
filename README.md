@@ -108,4 +108,4 @@ Every multi-Repo command ends with one line per Repo and exits non-zero when any
 
 ## Development
 
-Run the tests with `cargo test`. Coding conventions are in [AGENTS.md](AGENTS.md), the vocabulary in [GLOSSARY.md](GLOSSARY.md), and design decisions in [docs/adr/](docs/adr/).
+Run `git config core.hooksPath .githooks` once after cloning, so every commit runs `scripts/check.sh` (format, clippy, style rules, tests). Coding conventions are in [CODING_STANDARDS.md](CODING_STANDARDS.md), the vocabulary in [GLOSSARY.md](GLOSSARY.md), and design decisions in [docs/adr/](docs/adr/).

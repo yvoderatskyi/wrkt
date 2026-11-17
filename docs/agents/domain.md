@@ -49,3 +49,7 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
+
+## Commit what you changed
+
+`.scratch/` is git-ignored, so `GLOSSARY.md` and `docs/adr/` are the only design record that reaches git. When a session creates or edits them, list the changed files at the end and offer to commit them.
