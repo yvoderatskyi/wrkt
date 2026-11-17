@@ -1,6 +1,9 @@
+mod branch;
 mod config;
+mod directory_name;
 mod git;
 mod repo;
+mod workspace;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -8,8 +11,10 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use branch::Branch;
 use config::Config;
 use repo::{ClonePath, RepoName};
+use workspace::WorkspaceName;
 
 #[derive(Parser)]
 #[command(
@@ -26,6 +31,19 @@ enum Command {
     /// Manage the Repo registry
     #[command(subcommand)]
     Repo(RepoCommand),
+    /// Create a Workspace with one worktree per Repo
+    New {
+        /// Workspace name, typically the Jira issue key
+        name: WorkspaceName,
+        /// Repos to include
+        #[arg(required = true)]
+        repos: Vec<RepoName>,
+        /// Branch name (defaults to the configured branch template)
+        #[arg(long)]
+        branch: Option<Branch>,
+    },
+    /// List every Workspace with its Repos
+    List,
 }
 
 #[derive(Subcommand)]
@@ -58,7 +76,22 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Repo(command) => run_repo(command),
+        Command::New {
+            name,
+            repos,
+            branch,
+        } => new_workspace(&name, &repos, branch),
+        Command::List => list_workspaces(),
     }
+}
+
+fn list_workspaces() -> Result<()> {
+    print!("{}", Config::load()?.workspaces()?);
+    Ok(())
+}
+
+fn new_workspace(name: &WorkspaceName, repos: &[RepoName], branch: Option<Branch>) -> Result<()> {
+    Config::load()?.create_workspace(name, repos, branch)
 }
 
 fn run_repo(command: RepoCommand) -> Result<()> {

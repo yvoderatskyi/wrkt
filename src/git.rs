@@ -3,16 +3,12 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail, ensure};
 
+const BASE_BRANCH: &str = "origin/main";
+
 #[derive(Debug)]
 enum GitOutput {
     Succeeded(String),
-    Failed(
-        #[expect(
-            dead_code,
-            reason = "shown for failed Repos once multi-Repo commands land"
-        )]
-        String,
-    ),
+    Failed(String),
 }
 
 fn run(directory: &Path, arguments: &[&str]) -> Result<GitOutput> {
@@ -66,4 +62,57 @@ pub fn clone_root(path: &Path) -> Result<PathBuf> {
         path.display()
     );
     Ok(canonical)
+}
+
+pub fn common_directory_of_top_level(path: &Path) -> Result<Option<PathBuf>> {
+    let output = run(
+        path,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-common-dir",
+        ],
+    )?;
+    let GitOutput::Succeeded(stdout) = output else {
+        return Ok(None);
+    };
+    let mut lines = stdout.lines().map(PathBuf::from);
+    let toplevel = lines.next().context("git rev-parse printed no top level")?;
+    let common_directory = lines
+        .next()
+        .context("git rev-parse printed no common directory")?;
+    Ok((toplevel == path).then_some(common_directory))
+}
+
+pub fn is_valid_branch_name(name: &str) -> Result<bool> {
+    let output = run(Path::new("."), &["check-ref-format", "--branch", name])?;
+    Ok(matches!(output, GitOutput::Succeeded(_)))
+}
+
+pub fn fetch(clone: &Path) -> Result<()> {
+    run_checked(clone, &["fetch", "origin"])
+}
+
+pub fn add_worktree(clone: &Path, worktree: &Path, branch: &str) -> Result<()> {
+    let worktree_argument = worktree.to_string_lossy();
+    run_checked(
+        clone,
+        &[
+            "worktree",
+            "add",
+            "--no-track",
+            "-b",
+            branch,
+            &worktree_argument,
+            BASE_BRANCH,
+        ],
+    )
+}
+
+fn run_checked(directory: &Path, arguments: &[&str]) -> Result<()> {
+    let GitOutput::Failed(stderr) = run(directory, arguments)? else {
+        return Ok(());
+    };
+    bail!("git {} failed: {}", arguments.join(" "), stderr.trim())
 }

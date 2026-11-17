@@ -7,6 +7,8 @@ use std::str::FromStr;
 use anyhow::{Context, Error, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+use crate::branch::Branch;
+use crate::directory_name;
 use crate::git;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -26,10 +28,16 @@ impl TryFrom<String> for RepoName {
 
     fn try_from(name: String) -> Result<Self> {
         ensure!(
-            !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\']),
+            directory_name::is_usable(&name),
             "invalid Repo name '{name}': it must be usable as a directory name"
         );
         Ok(RepoName(name))
+    }
+}
+
+impl AsRef<Path> for RepoName {
+    fn as_ref(&self) -> &Path {
+        Path::new(&self.0)
     }
 }
 
@@ -62,6 +70,19 @@ impl ClonePath {
             .context("cannot derive a Repo name from the path; pass --name")?;
         directory.parse()
     }
+
+    fn owns_worktree(&self, path: &Path) -> Result<bool> {
+        let common_directory = git::common_directory_of_top_level(path)?;
+        Ok(common_directory == Some(self.0.join(".git")))
+    }
+
+    fn fetch(&self) -> Result<()> {
+        git::fetch(&self.0)
+    }
+
+    fn add_worktree(&self, worktree: &Path, branch: &Branch) -> Result<()> {
+        git::add_worktree(&self.0, worktree, branch.as_ref())
+    }
 }
 
 impl fmt::Display for ClonePath {
@@ -86,6 +107,29 @@ impl Registry {
         Ok(())
     }
 
+    pub fn select(&self, names: &[RepoName]) -> Result<Clones<'_>> {
+        let mut selected = BTreeMap::new();
+        for name in names {
+            let (registered, clone) = self
+                .0
+                .get_key_value(name)
+                .with_context(|| format!("no Repo named '{name}' is registered"))?;
+            ensure!(
+                selected.insert(registered, clone).is_none(),
+                "Repo '{name}' is named more than once"
+            );
+        }
+        Ok(Clones(selected))
+    }
+
+    pub fn owner_of(&self, worktree: &Path) -> Result<Option<&RepoName>> {
+        self.0
+            .iter()
+            .map(|(name, clone)| Ok(clone.owns_worktree(worktree)?.then_some(name)))
+            .find_map(Result::transpose)
+            .transpose()
+    }
+
     pub fn remove(&mut self, name: &RepoName) -> Result<()> {
         ensure!(
             self.0.remove(name).is_some(),
@@ -101,5 +145,19 @@ impl fmt::Display for Registry {
         self.0
             .iter()
             .try_for_each(|(name, clone)| writeln!(formatter, "{name:width$}  {clone}"))
+    }
+}
+
+pub struct Clones<'registry>(BTreeMap<&'registry RepoName, &'registry ClonePath>);
+
+impl Clones<'_> {
+    pub fn fetch(&self) -> Result<()> {
+        self.0.values().try_for_each(|clone| clone.fetch())
+    }
+
+    pub fn add_worktrees(&self, directory: &Path, branch: &Branch) -> Result<()> {
+        self.0
+            .iter()
+            .try_for_each(|(name, clone)| clone.add_worktree(&directory.join(name), branch))
     }
 }

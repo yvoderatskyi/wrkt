@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::branch::Branch;
 use crate::repo::{ClonePath, Registry, RepoName};
+use crate::workspace::{Workspace, WorkspaceName, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -19,9 +21,32 @@ struct WorkspaceSettings {
     branch_template: BranchTemplate,
 }
 
+impl WorkspaceSettings {
+    fn workspace(&self, name: &WorkspaceName, branch: Option<Branch>) -> Result<Workspace> {
+        let directory = self.root.resolved()?.join(name);
+        let branch = branch.map_or_else(|| self.branch_template.branch_for(name), Ok)?;
+        Ok(Workspace::new(directory, branch))
+    }
+
+    fn discover(&self, registry: &Registry) -> Result<Workspaces> {
+        Workspaces::discover(&self.root.resolved()?, registry)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 struct WorkspaceRoot(PathBuf);
+
+impl WorkspaceRoot {
+    fn resolved(&self) -> Result<PathBuf> {
+        if !self.0.exists() {
+            return Ok(self.0.clone());
+        }
+        self.0
+            .canonicalize()
+            .with_context(|| format!("resolving Workspace root {}", self.0.display()))
+    }
+}
 
 impl Default for WorkspaceRoot {
     fn default() -> Self {
@@ -33,6 +58,12 @@ impl Default for WorkspaceRoot {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 struct BranchTemplate(String);
+
+impl BranchTemplate {
+    fn branch_for(&self, name: &WorkspaceName) -> Result<Branch> {
+        self.0.replace("{key}", &name.to_string()).try_into()
+    }
+}
 
 impl Default for BranchTemplate {
     fn default() -> Self {
@@ -86,6 +117,21 @@ impl Config {
 
     pub fn remove_repo(&mut self, name: &RepoName) -> Result<()> {
         self.repos.remove(name)
+    }
+
+    pub fn create_workspace(
+        &self,
+        name: &WorkspaceName,
+        repos: &[RepoName],
+        branch: Option<Branch>,
+    ) -> Result<()> {
+        let workspace = self.workspace.workspace(name, branch)?;
+        let clones = self.repos.select(repos)?;
+        workspace.create(&clones)
+    }
+
+    pub fn workspaces(&self) -> Result<Workspaces> {
+        self.workspace.discover(&self.repos)
     }
 
     pub fn describe_repos(&self) -> String {

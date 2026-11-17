@@ -99,10 +99,51 @@ impl Sandbox {
         clone
     }
 
+    pub fn registered_repo(&self, name: &str) -> PathBuf {
+        if !self.config_path().exists() {
+            self.write_config("");
+        }
+        let clone = self.repo(name);
+        self.wrkt(&["repo", "add", clone.to_str().unwrap()])
+            .success();
+        clone
+    }
+
+    pub fn advance_origin_main(&self, name: &str) -> String {
+        let remotes = self.remotes();
+        let origin = remotes.join(format!("{name}.git"));
+        let colleague = remotes.join(format!("{name}-colleague"));
+        self.git(
+            &remotes,
+            &[
+                "clone",
+                origin.to_str().unwrap(),
+                colleague.to_str().unwrap(),
+            ],
+        );
+        std::fs::write(colleague.join("CHANGE.md"), "colleague change\n").unwrap();
+        self.git(&colleague, &["add", "."]);
+        self.git(&colleague, &["commit", "-m", "colleague change"]);
+        self.git(&colleague, &["push", "origin", "main"]);
+        let commit = self.git(&colleague, &["rev-parse", "HEAD"]);
+        std::fs::remove_dir_all(&colleague).unwrap();
+        commit
+    }
+
+    pub fn break_origin(&self, clone: &Path) {
+        self.git(
+            clone,
+            &["remote", "set-url", "origin", "/nonexistent/origin.git"],
+        );
+    }
+
     pub fn write_config(&self, extra: &str) {
+        self.write_config_rooted_at(&self.workspace_root(), extra);
+    }
+
+    pub fn write_config_rooted_at(&self, root: &Path, extra: &str) {
         let path = self.config_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let root = self.workspace_root();
         let text = format!("[workspace]\nroot = \"{}\"\n{extra}", root.display());
         std::fs::write(&path, text).unwrap();
     }
