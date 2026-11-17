@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,10 @@ impl WorkspaceSettings {
         Ok(Workspace::new(directory, branch))
     }
 
+    fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
+        self.root.workspace_containing(directory)
+    }
+
     fn discover(&self, registry: &Registry) -> Result<Workspaces> {
         Workspaces::discover(&self.root.resolved()?, registry)
     }
@@ -46,6 +50,24 @@ impl WorkspaceRoot {
             .canonicalize()
             .with_context(|| format!("resolving Workspace root {}", self.0.display()))
     }
+
+    fn workspace_containing(&self, directory: &Path) -> Result<WorkspaceName> {
+        let root = self.resolved()?;
+        let child = directory
+            .strip_prefix(&root)
+            .ok()
+            .and_then(|relative| relative.components().next())
+            .with_context(|| not_inside_workspace(directory, &root))?;
+        child.as_os_str().to_string_lossy().parse()
+    }
+}
+
+fn not_inside_workspace(directory: &Path, root: &Path) -> String {
+    format!(
+        "{} is not inside a Workspace under {}; pass a Workspace name",
+        directory.display(),
+        root.display()
+    )
 }
 
 impl Default for WorkspaceRoot {
@@ -128,6 +150,15 @@ impl Config {
         let workspace = self.workspace.workspace(name, branch)?;
         let clones = self.repos.select(repos)?;
         workspace.create(&clones)
+    }
+
+    pub fn resolve_workspace(&self, name: Option<WorkspaceName>) -> Result<WorkspaceName> {
+        name.map_or_else(|| self.current_workspace(), Ok)
+    }
+
+    fn current_workspace(&self) -> Result<WorkspaceName> {
+        let directory = std::env::current_dir().context("reading the current directory")?;
+        self.workspace.containing(&directory)
     }
 
     pub fn workspaces(&self) -> Result<Workspaces> {

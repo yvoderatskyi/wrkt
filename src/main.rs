@@ -44,6 +44,12 @@ enum Command {
     },
     /// List every Workspace with its Repos
     List,
+    /// Print the Workspace a command would act on
+    #[command(hide = true)]
+    Which {
+        /// Workspace name (defaults to the Workspace containing the current directory)
+        name: Option<WorkspaceName>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -82,7 +88,13 @@ fn run(cli: Cli) -> Result<()> {
             branch,
         } => new_workspace(&name, &repos, branch),
         Command::List => list_workspaces(),
+        Command::Which { name } => print_workspace(name),
     }
+}
+
+fn print_workspace(name: Option<WorkspaceName>) -> Result<()> {
+    println!("{}", Config::load()?.resolve_workspace(name)?);
+    Ok(())
 }
 
 fn list_workspaces() -> Result<()> {

@@ -491,3 +491,121 @@ mod list {
         );
     }
 }
+
+mod which {
+    use super::support::Sandbox;
+
+    #[test]
+    fn infers_workspace_when_inside_its_subdirectory() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let nested = sandbox.workspace_root().join("PROJ-123/api/src");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        // Act
+        let run = sandbox.wrkt_in(&nested, &["which"]);
+
+        // Assert
+        assert_eq!(run.success().stdout(), "PROJ-123\n");
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_outside_workspace_root() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt_in(&sandbox.home(), &["which"]);
+
+        // Assert
+        run.failure();
+        assert_eq!(
+            run.stderr(),
+            format!(
+                "error: {} is not inside a Workspace under {}; pass a Workspace name\n",
+                sandbox.home().display(),
+                sandbox.workspace_root().display()
+            )
+        );
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_at_workspace_root() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt_in(&sandbox.workspace_root(), &["which"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("not inside a Workspace")
+                && run.stderr().contains("pass a Workspace name"),
+            "stderr: {}",
+            run.stderr()
+        );
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_in_sibling_sharing_root_prefix() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        let mut sibling = sandbox.workspace_root().into_os_string();
+        sibling.push("-other/PROJ-123");
+        std::fs::create_dir_all(&sibling).unwrap();
+
+        // Act
+        let run = sandbox.wrkt_in(sibling.as_ref(), &["which"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("not inside a Workspace")
+                && run.stderr().contains("pass a Workspace name"),
+            "stderr: {}",
+            run.stderr()
+        );
+    }
+
+    #[test]
+    fn prefers_explicit_name_when_inside_another_workspace() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-1", "api"]).success();
+        let inside = sandbox.workspace_root().join("PROJ-1/api");
+
+        // Act
+        let run = sandbox.wrkt_in(&inside, &["which", "PROJ-2"]);
+
+        // Assert
+        assert_eq!(run.success().stdout(), "PROJ-2\n");
+    }
+
+    #[test]
+    fn infers_workspace_when_root_is_a_symlink() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let link = sandbox.home().join("workspaces-link");
+        std::fs::create_dir_all(sandbox.workspace_root()).unwrap();
+        std::os::unix::fs::symlink(sandbox.workspace_root(), &link).unwrap();
+        sandbox.write_config_rooted_at(&link, "");
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt_in(&link.join("PROJ-123/api"), &["which"]);
+
+        // Assert
+        assert_eq!(run.success().stdout(), "PROJ-123\n");
+    }
+}
