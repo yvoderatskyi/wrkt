@@ -24,7 +24,7 @@ impl PushOutcome {
         }
         let branch = Branch::checked_out_in(worktree)?
             .with_context(|| format!("{} has no branch checked out", worktree.display()))?;
-        match git::push(worktree, branch.as_ref())? {
+        match git::push(worktree, &branch)? {
             PushEnd::Accepted(messages) => {
                 Ok(PushOutcome::Pushed(PullRequestUrl::find_in(&messages)))
             }

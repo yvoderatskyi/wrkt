@@ -58,13 +58,13 @@ impl Resolution {
     pub fn add_worktree(&self, clone: &Path, worktree: &Path) -> Result<()> {
         match self {
             Resolution::ReusedLocal(branch) => {
-                git::add_worktree_on_branch(clone, worktree, &branch.0)
+                git::add_worktree_on_branch(clone, worktree, branch.as_ref())
             }
             Resolution::TrackingRemote(branch) => {
-                git::add_worktree_tracking_remote(clone, worktree, &branch.0)
+                git::add_worktree_tracking_remote(clone, worktree, branch.as_ref())
             }
             Resolution::CreatedFromBase(branch) => {
-                git::add_worktree_from_base(clone, worktree, &branch.0)
+                git::add_worktree_from_base(clone, worktree, branch.as_ref())
             }
         }
     }

@@ -53,7 +53,7 @@ impl Removal {
         safety.remove_worktree(&clone, worktree)?;
         branch
             .as_ref()
-            .map_or(Ok(()), |branch| git::delete_branch(&clone, branch.as_ref()))?;
+            .map_or(Ok(()), |branch| git::delete_branch(&clone, branch))?;
         Ok(Removal::Removed(branch))
     }
 }

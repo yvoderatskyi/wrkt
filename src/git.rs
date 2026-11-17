@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail, ensure};
 
+use crate::branch::Branch;
+
 pub const REMOTE: &str = "origin";
 pub const BASE_BRANCH: &str = "main";
 
@@ -274,14 +276,14 @@ pub enum PushEnd {
     Rejected,
 }
 
-pub fn push(worktree: &Path, branch: &str) -> Result<PushEnd> {
+pub fn push(worktree: &Path, branch: &Branch) -> Result<PushEnd> {
     let arguments = [
         "push",
         "--force-with-lease",
         "--force-if-includes",
         "--set-upstream",
         REMOTE,
-        branch,
+        branch.as_ref(),
     ];
     let output = execute(worktree, &arguments)?;
     let messages = lossy(&output.stderr);
@@ -327,8 +329,8 @@ fn remove_worktree_with(clone: &Path, options: &[&str], worktree: &Path) -> Resu
     run_checked(clone, &arguments)
 }
 
-pub fn delete_branch(clone: &Path, branch: &str) -> Result<()> {
-    run_checked(clone, &["branch", "-D", branch])
+pub fn delete_branch(clone: &Path, branch: &Branch) -> Result<()> {
+    run_checked(clone, &["branch", "-D", branch.as_ref()])
 }
 
 fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {

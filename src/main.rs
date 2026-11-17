@@ -27,6 +27,7 @@ use workspace::WorkspaceName;
 #[derive(Parser)]
 #[command(
     name = "wrkt",
+    version,
     about = "Manage git worktrees across several Repos as one Workspace"
 )]
 struct Cli {

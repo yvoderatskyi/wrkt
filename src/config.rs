@@ -55,12 +55,6 @@ impl WorkspaceSettings {
         Ok(directory)
     }
 
-    fn delete(&self, name: &WorkspaceName) -> Result<()> {
-        let directory = self.directory_of(name)?;
-        std::fs::remove_dir_all(&directory)
-            .with_context(|| format!("removing Workspace {}", directory.display()))
-    }
-
     fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
         self.root.workspace_containing(directory)
     }
@@ -125,6 +119,11 @@ impl Default for BranchTemplate {
     fn default() -> Self {
         BranchTemplate("{key}".to_string())
     }
+}
+
+fn delete_workspace(directory: &Path) -> Result<()> {
+    std::fs::remove_dir_all(directory)
+        .with_context(|| format!("removing Workspace {}", directory.display()))
 }
 
 fn parse_repo_names(arguments: &[String]) -> Result<Vec<RepoName>> {
@@ -242,14 +241,14 @@ impl Config {
 
     pub fn remove(&self, name: Option<WorkspaceName>, safety: Safety) -> Result<Report<Removal>> {
         let name = self.resolve_workspace(name)?;
-        let members = self.workspace.members(&name, &self.repos)?;
         let directory = self.workspace.directory_of(&name)?;
+        let members = Members::discover(&directory, &self.repos)?;
         if let Some(refusal) = members.refuse_removal(&directory, safety)? {
             return Ok(refusal);
         }
         let report = members.remove(safety);
         if report.succeeded() {
-            self.workspace.delete(&name)?;
+            delete_workspace(&directory)?;
         }
         Ok(report)
     }
