@@ -1246,6 +1246,30 @@ mod sync {
     }
 
     #[test]
+    fn reports_failed_repo_without_prompting_when_remote_demands_credentials() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let api = sandbox.registered_repo("api");
+        sandbox.registered_repo("web");
+        sandbox.wrkt(&["new", "PROJ-123", "api", "web"]).success();
+        sandbox.probe_origin(&api);
+        sandbox.advance_origin_main("web");
+        let path = sandbox.path_with_probe();
+
+        // Act
+        let run = sandbox.wrkt_with(
+            &sandbox.home(),
+            &[("GIT_TERMINAL_PROMPT", "1"), ("PATH", &path)],
+            &["sync", "PROJ-123"],
+        );
+
+        // Assert
+        assert!(run.failure().line_for("api").contains("failed"), "{run}");
+        assert!(run.line_for("web").contains("rebased"), "{run}");
+        assert!(run.stdout().contains("GIT_TERMINAL_PROMPT=0 "), "{run}");
+    }
+
+    #[test]
     fn ignores_remote_branch_commits_when_local_branch_behind_remote() {
         // Arrange
         let sandbox = Sandbox::new();

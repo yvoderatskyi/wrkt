@@ -35,6 +35,7 @@ fn execute<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> 
     let output = Command::new("git")
         .args(arguments)
         .current_dir(directory)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .with_context(|| format!("running git {}", describe(arguments)))?;
     echo(directory, arguments, &output);

@@ -202,6 +202,23 @@ impl Sandbox {
         );
     }
 
+    pub fn probe_origin(&self, clone: &Path) {
+        let helpers = self.base.join("helpers");
+        std::fs::create_dir_all(&helpers).unwrap();
+        let helper = helpers.join("git-remote-probe");
+        let script = "#!/bin/sh\necho \"probed GIT_TERMINAL_PROMPT=$GIT_TERMINAL_PROMPT LC_ALL=$LC_ALL\" >&2\nexit 1\n";
+        std::fs::write(&helper, script).unwrap();
+        let executable = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&helper, executable).unwrap();
+        self.git(clone, &["remote", "set-url", "origin", "probe::origin"]);
+    }
+
+    pub fn path_with_probe(&self) -> String {
+        let helpers = self.base.join("helpers");
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        format!("{}:{inherited}", helpers.display())
+    }
+
     pub fn write_config(&self, extra: &str) {
         self.write_config_rooted_at(&self.workspace_root(), extra);
     }
