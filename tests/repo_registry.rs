@@ -231,6 +231,42 @@ mod repo_rm {
         run.failure();
         assert!(run.stderr().contains("nope"), "stderr: {}", run.stderr());
     }
+
+    #[test]
+    fn rejects_repo_when_a_workspace_uses_it() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["repo", "rm", "api"]);
+
+        // Assert
+        run.failure();
+        assert!(
+            run.stderr().contains("PROJ-123"),
+            "stderr: {}",
+            run.stderr()
+        );
+        let listing = sandbox.wrkt(&["repo", "list"]).success().stdout();
+        assert!(listing.contains("api"), "api unregistered:\n{listing}");
+    }
+
+    #[test]
+    fn unregisters_repo_when_its_workspace_was_removed() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+        sandbox.wrkt(&["rm", "PROJ-123"]).success();
+
+        // Act
+        let run = sandbox.wrkt(&["repo", "rm", "api"]);
+
+        // Assert
+        run.success();
+    }
 }
 
 mod config {

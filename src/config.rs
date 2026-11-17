@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
 use crate::push::PushOutcome;
+use crate::removal::{Removal, Safety};
 use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
@@ -52,6 +53,12 @@ impl WorkspaceSettings {
             self.root
         );
         Ok(directory)
+    }
+
+    fn delete(&self, name: &WorkspaceName) -> Result<()> {
+        let directory = self.directory_of(name)?;
+        std::fs::remove_dir_all(&directory)
+            .with_context(|| format!("removing Workspace {}", directory.display()))
     }
 
     fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
@@ -174,6 +181,7 @@ impl Config {
     }
 
     pub fn remove_repo(&mut self, name: &RepoName) -> Result<()> {
+        self.workspaces()?.ensure_unused_by(name)?;
         self.repos.remove(name)
     }
 
@@ -235,6 +243,19 @@ impl Config {
         let name = self.resolve_workspace(name)?;
         let members = self.workspace.members(&name, &self.repos)?;
         Ok(members.push())
+    }
+
+    pub fn remove(&self, name: Option<WorkspaceName>, safety: Safety) -> Result<Report<Removal>> {
+        let name = self.resolve_workspace(name)?;
+        let members = self.workspace.members(&name, &self.repos)?;
+        if let Some(refusal) = members.refuse_removal(safety) {
+            return Ok(refusal);
+        }
+        let report = members.remove(safety);
+        if report.succeeded() {
+            self.workspace.delete(&name)?;
+        }
+        Ok(report)
     }
 
     pub fn describe_repos(&self) -> String {

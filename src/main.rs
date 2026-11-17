@@ -3,6 +3,7 @@ mod config;
 mod directory_name;
 mod git;
 mod push;
+mod removal;
 mod repo;
 mod report;
 mod status;
@@ -17,6 +18,7 @@ use clap::{Parser, Subcommand};
 
 use branch::Branch;
 use config::Config;
+use removal::Safety;
 use repo::{ClonePath, RepoName};
 use workspace::WorkspaceName;
 
@@ -72,6 +74,14 @@ enum Command {
         /// Workspace name (defaults to the Workspace containing the current directory)
         name: Option<WorkspaceName>,
     },
+    /// Remove every worktree, its local branch and the Workspace directory
+    Rm {
+        /// Workspace name (defaults to the Workspace containing the current directory)
+        name: Option<WorkspaceName>,
+        /// Remove even when a Repo has uncommitted changes or unpushed commits
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the Workspace a command would act on
     #[command(hide = true)]
     Which {
@@ -123,6 +133,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Status { name } => show_status(name),
         Command::Sync { name } => sync_workspace(name),
         Command::Push { name } => push_workspace(name),
+        Command::Rm { name, force } => remove_workspace(name, Safety::forced_when(force)),
         Command::Which { name } => print_workspace(name),
     }
 }
@@ -151,6 +162,12 @@ fn sync_workspace(name: Option<WorkspaceName>) -> Result<()> {
 
 fn push_workspace(name: Option<WorkspaceName>) -> Result<()> {
     let report = Config::load()?.push(name)?;
+    print!("{report}");
+    report.ensure_succeeded()
+}
+
+fn remove_workspace(name: Option<WorkspaceName>, safety: Safety) -> Result<()> {
+    let report = Config::load()?.remove(name, safety)?;
     print!("{report}");
     report.ensure_succeeded()
 }

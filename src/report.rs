@@ -22,6 +22,10 @@ impl<Outcome> FromIterator<(RepoName, Result<Outcome>)> for Report<Outcome> {
 }
 
 impl<Outcome: Success> Report<Outcome> {
+    pub fn succeeded(&self) -> bool {
+        self.0.values().all(succeeded)
+    }
+
     pub fn ensure_succeeded(&self) -> Result<()> {
         let unsuccessful = self
             .0
@@ -29,7 +33,7 @@ impl<Outcome: Success> Report<Outcome> {
             .filter(|outcome| !succeeded(outcome))
             .count();
         ensure!(
-            unsuccessful == 0,
+            self.succeeded(),
             "{unsuccessful} of {} Repos did not succeed",
             self.0.len()
         );

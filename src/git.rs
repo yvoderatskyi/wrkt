@@ -228,6 +228,14 @@ pub fn is_contained_in_base(worktree: &Path) -> Result<bool> {
     succeeds(worktree, &["merge-base", "--is-ancestor", "HEAD", &base])
 }
 
+pub fn is_contained_in_remote_branch(worktree: &Path, branch: &str) -> Result<bool> {
+    let remote_branch = remote_reference(branch);
+    succeeds(
+        worktree,
+        &["merge-base", "--is-ancestor", "HEAD", &remote_branch],
+    )
+}
+
 pub enum RebaseEnd {
     Completed,
     Conflicted,
@@ -273,6 +281,40 @@ pub fn push(worktree: &Path, branch: &str) -> Result<PushEnd> {
         messages.trim()
     );
     Ok(PushEnd::Rejected)
+}
+
+pub fn clone_of(worktree: &Path) -> Result<PathBuf> {
+    let stdout = run_reading(
+        worktree,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+    let common_directory = PathBuf::from(stdout.trim());
+    let clone = common_directory
+        .parent()
+        .with_context(|| format!("{} has no parent", common_directory.display()))?;
+    Ok(clone.to_path_buf())
+}
+
+pub fn remove_worktree(clone: &Path, worktree: &Path) -> Result<()> {
+    remove_worktree_with(clone, &[], worktree)
+}
+
+pub fn remove_worktree_discarding_changes(clone: &Path, worktree: &Path) -> Result<()> {
+    remove_worktree_with(clone, &["--force"], worktree)
+}
+
+fn remove_worktree_with(clone: &Path, options: &[&str], worktree: &Path) -> Result<()> {
+    let arguments: Vec<&OsStr> = ["worktree", "remove"]
+        .iter()
+        .chain(options)
+        .map(OsStr::new)
+        .chain([worktree.as_os_str()])
+        .collect();
+    run_checked(clone, &arguments)
+}
+
+pub fn delete_branch(clone: &Path, branch: &str) -> Result<()> {
+    run_checked(clone, &["branch", "-D", branch])
 }
 
 fn run_checked<Argument: AsRef<OsStr>>(directory: &Path, arguments: &[Argument]) -> Result<()> {

@@ -5,11 +5,12 @@ use std::str::FromStr;
 
 use std::thread::{Scope, ScopedJoinHandle};
 
-use anyhow::{Context, Error, Result, anyhow, ensure};
+use anyhow::{Context, Error, Result, anyhow, bail, ensure};
 
 use crate::branch::Branch;
 use crate::directory_name;
 use crate::push::PushOutcome;
+use crate::removal::{Removal, Safety};
 use crate::repo::{Clones, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
@@ -106,6 +107,14 @@ impl Workspaces {
             .collect::<Result<_>>()?;
         Ok(Workspaces(workspaces))
     }
+
+    pub fn ensure_unused_by(&self, repo: &RepoName) -> Result<()> {
+        let using_workspace = self.0.iter().find(|(_, repos)| repos.contains(repo));
+        let Some((name, _)) = using_workspace else {
+            return Ok(());
+        };
+        bail!("Repo '{repo}' is still in Workspace {name}; run `wrkt rm {name}` first")
+    }
 }
 
 impl fmt::Display for Workspaces {
@@ -139,6 +148,18 @@ impl Members {
 
     pub fn push(&self) -> Report<PushOutcome> {
         self.in_parallel(PushOutcome::run_in)
+    }
+
+    pub fn refuse_removal(&self, safety: Safety) -> Option<Report<Removal>> {
+        if safety.is_forced() {
+            return None;
+        }
+        let check = self.in_parallel(Removal::check);
+        (!check.succeeded()).then_some(check)
+    }
+
+    pub fn remove(&self, safety: Safety) -> Report<Removal> {
+        self.in_parallel(|worktree| Removal::run_in(worktree, safety))
     }
 
     fn in_parallel<Outcome: Send>(
@@ -178,6 +199,10 @@ fn joined<Outcome>(handle: ScopedJoinHandle<'_, Result<Outcome>>) -> Result<Outc
 struct RepoNames(BTreeSet<RepoName>);
 
 impl RepoNames {
+    fn contains(&self, repo: &RepoName) -> bool {
+        self.0.contains(repo)
+    }
+
     fn discover(workspace: &Path, registry: &Registry) -> Result<Self> {
         let names = subdirectories(workspace)?
             .into_iter()

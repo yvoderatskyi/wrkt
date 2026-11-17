@@ -78,6 +78,13 @@ impl Sandbox {
         run.stdout().trim().to_string()
     }
 
+    pub fn local_branch(&self, clone: &Path, branch: &str) -> String {
+        self.git(
+            clone,
+            &["branch", "--list", "--format=%(refname:short)", branch],
+        )
+    }
+
     pub fn repo(&self, name: &str) -> PathBuf {
         let remotes = self.remotes();
         let origin = remotes.join(format!("{name}.git"));
