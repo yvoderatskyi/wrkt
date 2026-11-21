@@ -508,7 +508,7 @@ mod list {
     }
 
     #[test]
-    fn shows_nothing_when_workspace_root_missing() {
+    fn hints_at_new_on_stderr_when_workspace_root_missing() {
         // Arrange
         let sandbox = Sandbox::new();
         sandbox.registered_repo("api");
@@ -518,6 +518,34 @@ mod list {
 
         // Assert
         assert_eq!(run.success().stdout(), "");
+        assert_eq!(
+            run.stderr(),
+            format!(
+                "No Workspaces under {} yet; create one with wrkt new <name>\n",
+                sandbox.workspace_root().display()
+            )
+        );
+    }
+
+    #[test]
+    fn hints_at_new_on_stderr_when_workspace_root_empty() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        std::fs::create_dir(sandbox.workspace_root()).unwrap();
+
+        // Act
+        let run = sandbox.wrkt(&["list"]);
+
+        // Assert
+        assert_eq!(run.success().stdout(), "");
+        assert_eq!(
+            run.stderr(),
+            format!(
+                "No Workspaces under {} yet; create one with wrkt new <name>\n",
+                sandbox.workspace_root().display()
+            )
+        );
     }
 
     #[test]
@@ -630,12 +658,9 @@ mod which {
         let run = sandbox.wrkt_in(&sandbox.workspace_root(), &["which"]);
 
         // Assert
-        run.failure();
         assert!(
-            run.stderr().contains("not inside a Workspace")
-                && run.stderr().contains("pass a Workspace name"),
-            "stderr: {}",
-            run.stderr()
+            run.failure().stderr().contains("is the Workspace root"),
+            "{run}"
         );
     }
 
@@ -1246,6 +1271,26 @@ mod status {
 
         // Assert
         assert!(run.failure().stderr().contains("pass a Workspace name"));
+    }
+
+    #[test]
+    fn rejects_omitted_name_when_at_workspace_root() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.registered_repo("api");
+        sandbox.wrkt(&["new", "PROJ-123", "api"]).success();
+
+        // Act
+        let run = sandbox.wrkt_in(&sandbox.workspace_root(), &["status"]);
+
+        // Assert
+        assert_eq!(
+            run.failure().stderr(),
+            format!(
+                "error: {} is the Workspace root; cd into a Workspace or pass its name\n",
+                sandbox.workspace_root().display()
+            )
+        );
     }
 
     #[test]

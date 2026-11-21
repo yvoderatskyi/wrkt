@@ -150,7 +150,11 @@ fn print_workspace(name: Option<WorkspaceName>) -> Result<()> {
 }
 
 fn list_workspaces() -> Result<()> {
-    print!("{}", Config::load()?.workspaces()?);
+    let workspaces = Config::load()?.workspaces()?;
+    if let Some(hint) = workspaces.hint_when_empty() {
+        eprintln!("{hint}");
+    }
+    print!("{workspaces}");
     Ok(())
 }
 

@@ -93,6 +93,7 @@ impl WorkspaceRoot {
 
     fn workspace_containing(&self, directory: &Path) -> Result<WorkspaceName> {
         let root = self.resolved()?;
+        ensure!(directory != root, "{}", is_workspace_root(&root));
         let child = directory
             .strip_prefix(&root)
             .ok()
@@ -100,6 +101,13 @@ impl WorkspaceRoot {
             .with_context(|| not_inside_workspace(directory, &root))?;
         child.as_os_str().to_string_lossy().parse()
     }
+}
+
+fn is_workspace_root(root: &Path) -> String {
+    format!(
+        "{} is the Workspace root; cd into a Workspace or pass its name",
+        root.display()
+    )
 }
 
 fn not_inside_workspace(directory: &Path, root: &Path) -> String {

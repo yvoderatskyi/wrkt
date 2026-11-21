@@ -102,34 +102,46 @@ fn member_branch(worktree: &Path, registry: &Registry) -> Result<Option<Branch>>
     Branch::checked_out_in(worktree)
 }
 
-pub struct Workspaces(BTreeMap<WorkspaceName, RepoNames>);
+pub struct Workspaces {
+    root: PathBuf,
+    members: BTreeMap<WorkspaceName, RepoNames>,
+}
 
 impl Workspaces {
     pub fn discover(root: &Path, registry: &Registry) -> Result<Self> {
+        let root = root.to_path_buf();
         if !root.exists() {
-            return Ok(Workspaces(BTreeMap::new()));
+            let members = BTreeMap::new();
+            return Ok(Workspaces { root, members });
         }
-        let workspaces = subdirectories(root)?
+        let members = subdirectories(&root)?
             .into_iter()
             .filter_map(|directory| directory.parse::<WorkspaceName>().ok())
             .map(|name| member_names(&root.join(&name), registry).map(|repos| (name, repos)))
             .collect::<Result<_>>()?;
-        Ok(Workspaces(workspaces))
+        Ok(Workspaces { root, members })
     }
 
     pub fn ensure_unused_by(&self, repo: &RepoName) -> Result<()> {
-        let using_workspace = self.0.iter().find(|(_, repos)| repos.contains(repo));
+        let using_workspace = self.members.iter().find(|(_, repos)| repos.contains(repo));
         let Some((name, _)) = using_workspace else {
             return Ok(());
         };
         bail!("Repo '{repo}' is still in Workspace {name}; run `wrkt rm {name}` first")
     }
+
+    pub fn hint_when_empty(&self) -> Option<String> {
+        let root = self.root.display();
+        self.members
+            .is_empty()
+            .then(|| format!("No Workspaces under {root} yet; create one with wrkt new <name>"))
+    }
 }
 
 impl fmt::Display for Workspaces {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let column = NameColumn::fitting(self.0.keys());
-        self.0
+        let column = NameColumn::fitting(self.members.keys());
+        self.members
             .iter()
             .try_for_each(|(name, repos)| column.write_row(formatter, name, repos))
     }
