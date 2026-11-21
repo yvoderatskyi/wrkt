@@ -70,15 +70,6 @@ impl Workspace {
         self.extend(clones)
     }
 
-    pub fn existing(
-        directory: PathBuf,
-        registry: &Registry,
-        fallback: impl FnOnce() -> Result<Branch>,
-    ) -> Result<Self> {
-        let branch = branch_of_members(&directory, registry)?.map_or_else(fallback, Ok)?;
-        Ok(Workspace::new(directory, branch))
-    }
-
     pub fn extend<'registry>(&self, clones: &Clones<'registry>) -> Result<Resolutions<'registry>> {
         clones.ensure_absent_from(&self.directory)?;
         clones.ensure_branch_free(&self.branch)?;
@@ -87,19 +78,65 @@ impl Workspace {
     }
 }
 
-fn branch_of_members(directory: &Path, registry: &Registry) -> Result<Option<Branch>> {
-    subdirectories(directory)?
-        .into_iter()
-        .map(|child| member_branch(&directory.join(child), registry))
-        .find_map(Result::transpose)
-        .transpose()
-}
+pub struct WorkspaceRoot(PathBuf);
 
-fn member_branch(worktree: &Path, registry: &Registry) -> Result<Option<Branch>> {
-    if !registry.owns(worktree)? {
-        return Ok(None);
+impl WorkspaceRoot {
+    pub fn at(root: PathBuf) -> Result<Self> {
+        if !root.exists() {
+            return Ok(WorkspaceRoot(root));
+        }
+        let resolved = root
+            .canonicalize()
+            .with_context(|| format!("resolving Workspace root {}", root.display()))?;
+        Ok(WorkspaceRoot(resolved))
     }
-    Branch::checked_out_in(worktree)
+
+    pub fn workspace(&self, name: &WorkspaceName, branch: Branch) -> Workspace {
+        Workspace::new(self.0.join(name), branch)
+    }
+
+    pub fn holds(&self, name: &WorkspaceName) -> bool {
+        self.0.join(name).is_dir()
+    }
+
+    pub fn directory_of(&self, name: &WorkspaceName) -> Result<PathBuf> {
+        ensure!(
+            self.holds(name),
+            "no Workspace named '{name}' under {}",
+            self.0.display()
+        );
+        Ok(self.0.join(name))
+    }
+
+    pub fn members(&self, name: &WorkspaceName, registry: &Registry) -> Result<Members> {
+        Members::discover(&self.directory_of(name)?, registry)
+    }
+
+    pub fn workspaces(&self, registry: &Registry) -> Result<Workspaces> {
+        Workspaces::discover(&self.0, registry)
+    }
+
+    pub fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
+        ensure!(
+            directory != self.0,
+            "{} is the Workspace root; cd into a Workspace or pass its name",
+            self.0.display()
+        );
+        let child = directory
+            .strip_prefix(&self.0)
+            .ok()
+            .and_then(|relative| relative.components().next())
+            .with_context(|| self.not_holding(directory))?;
+        child.as_os_str().to_string_lossy().parse()
+    }
+
+    fn not_holding(&self, directory: &Path) -> String {
+        format!(
+            "{} is not inside a Workspace under {}; pass a Workspace name",
+            directory.display(),
+            self.0.display()
+        )
+    }
 }
 
 pub struct Workspaces {
@@ -108,7 +145,7 @@ pub struct Workspaces {
 }
 
 impl Workspaces {
-    pub fn discover(root: &Path, registry: &Registry) -> Result<Self> {
+    fn discover(root: &Path, registry: &Registry) -> Result<Self> {
         let root = root.to_path_buf();
         if !root.exists() {
             let members = BTreeMap::new();
@@ -117,7 +154,9 @@ impl Workspaces {
         let members = subdirectories(&root)?
             .into_iter()
             .filter_map(|directory| directory.parse::<WorkspaceName>().ok())
-            .map(|name| member_names(&root.join(&name), registry).map(|repos| (name, repos)))
+            .map(|name| {
+                Members::discover(&root.join(&name), registry).map(|found| (name, found.names()))
+            })
             .collect::<Result<_>>()?;
         Ok(Workspaces { root, members })
     }
@@ -157,6 +196,18 @@ impl Members {
             .filter_map(Result::transpose)
             .collect::<Result<_>>()?;
         Ok(Members(members))
+    }
+
+    pub fn names(&self) -> RepoNames {
+        self.0.keys().cloned().collect()
+    }
+
+    pub fn branch(&self) -> Result<Option<Branch>> {
+        self.0
+            .values()
+            .map(|worktree| Branch::checked_out_in(worktree))
+            .find_map(Result::transpose)
+            .transpose()
     }
 
     pub fn status(&self) -> Report<RepoStatus> {
@@ -233,15 +284,6 @@ impl Members {
 fn member(worktree: PathBuf, registry: &Registry) -> Result<Option<(RepoName, PathBuf)>> {
     let owner = registry.owner_of(&worktree)?.cloned();
     Ok(owner.map(|name| (name, worktree)))
-}
-
-pub fn member_names(workspace: &Path, registry: &Registry) -> Result<RepoNames> {
-    subdirectories(workspace)?
-        .into_iter()
-        .map(|child| registry.owner_of(&workspace.join(child)))
-        .filter_map(Result::transpose)
-        .map(Result::<&RepoName, Error>::cloned)
-        .collect()
 }
 
 const FINDER_METADATA: &str = ".DS_Store";

@@ -203,10 +203,6 @@ impl Registry {
             .is_ok_and(|name| self.0.contains_key(&name))
     }
 
-    pub fn owns(&self, worktree: &Path) -> Result<bool> {
-        Ok(self.owner_of(worktree)?.is_some())
-    }
-
     pub fn owner_of(&self, worktree: &Path) -> Result<Option<&RepoName>> {
         let common_directory = git::common_directory_of_top_level(worktree)?;
         Ok(common_directory.and_then(|common_directory| self.sharing(&common_directory)))

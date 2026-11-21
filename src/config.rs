@@ -1,17 +1,17 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Error, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 use crate::branch::Branch;
 use crate::prompt::{self, Prompter};
 use crate::push::PushOutcome;
 use crate::removal::{Removal, Safety};
-use crate::repo::{ClonePath, Registry, RepoName, RepoNames, Resolutions};
+use crate::repo::{ClonePath, Registry, RepoName, Resolutions};
 use crate::report::Report;
 use crate::status::RepoStatus;
 use crate::sync::SyncOutcome;
-use crate::workspace::{self, Members, Workspace, WorkspaceName, Workspaces};
+use crate::workspace::{Members, WorkspaceName, WorkspaceRoot, Workspaces};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -23,111 +23,55 @@ pub struct Config {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct WorkspaceSettings {
-    #[serde(skip_serializing_if = "WorkspaceRoot::is_default")]
-    root: WorkspaceRoot,
+    #[serde(skip_serializing_if = "ConfiguredRoot::is_default")]
+    root: ConfiguredRoot,
     branch_template: BranchTemplate,
 }
 
 impl WorkspaceSettings {
-    fn workspace(&self, name: &WorkspaceName, branch: Option<Branch>) -> Result<Workspace> {
-        let directory = self.root.resolved()?.join(name);
-        let branch = branch.map_or_else(|| self.branch_template.branch_for(name), Ok)?;
-        Ok(Workspace::new(directory, branch))
+    fn root(&self) -> Result<WorkspaceRoot> {
+        self.root.resolved()
     }
 
-    fn existing(&self, name: &WorkspaceName, registry: &Registry) -> Result<Workspace> {
-        Workspace::existing(self.directory_of(name)?, registry, || {
-            self.branch_template.branch_for(name)
-        })
-    }
-
-    fn member_names(&self, name: &WorkspaceName, registry: &Registry) -> Result<RepoNames> {
-        workspace::member_names(&self.directory_of(name)?, registry)
-    }
-
-    fn members(&self, name: &WorkspaceName, registry: &Registry) -> Result<Members> {
-        Members::discover(&self.directory_of(name)?, registry)
-    }
-
-    fn directory_of(&self, name: &WorkspaceName) -> Result<PathBuf> {
-        let root = self.root.resolved()?;
-        let directory = root.join(name);
-        ensure!(
-            directory.is_dir(),
-            "no Workspace named '{name}' under {}",
-            root.display()
-        );
-        Ok(directory)
-    }
-
-    fn containing(&self, directory: &Path) -> Result<WorkspaceName> {
-        self.root.workspace_containing(directory)
-    }
-
-    fn discover(&self, registry: &Registry) -> Result<Workspaces> {
-        Workspaces::discover(&self.root.resolved()?, registry)
+    fn branch(&self, name: &WorkspaceName, given: Option<Branch>) -> Result<Branch> {
+        given.map_or_else(|| self.branch_template.branch_for(name), Ok)
     }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(transparent)]
-struct WorkspaceRoot(Option<PathBuf>);
+#[serde(try_from = "PathBuf")]
+struct ConfiguredRoot(Option<PathBuf>);
 
-impl WorkspaceRoot {
+impl TryFrom<PathBuf> for ConfiguredRoot {
+    type Error = Error;
+
+    fn try_from(root: PathBuf) -> Result<Self> {
+        ensure!(
+            root.is_absolute() || root.starts_with(HOME_SHORTHAND),
+            "Workspace root '{}' must be an absolute path or start with ~/",
+            root.display()
+        );
+        Ok(ConfiguredRoot(Some(root)))
+    }
+}
+
+impl ConfiguredRoot {
     fn is_default(&self) -> bool {
         self.0.is_none()
     }
 
-    fn configured_or_default(&self) -> Result<PathBuf> {
+    fn resolved(&self) -> Result<WorkspaceRoot> {
         let Some(configured) = &self.0 else {
-            return Ok(home()?.join("wrkt"));
+            return WorkspaceRoot::at(home()?.join("wrkt"));
         };
-        if let Ok(below_home) = configured.strip_prefix("~") {
-            return Ok(home()?.join(below_home));
-        }
-        ensure!(
-            configured.is_absolute(),
-            "Workspace root '{}' must be an absolute path or start with ~/",
-            configured.display()
-        );
-        Ok(configured.clone())
-    }
-
-    fn resolved(&self) -> Result<PathBuf> {
-        let root = self.configured_or_default()?;
-        if !root.exists() {
-            return Ok(root);
-        }
-        root.canonicalize()
-            .with_context(|| format!("resolving Workspace root {}", root.display()))
-    }
-
-    fn workspace_containing(&self, directory: &Path) -> Result<WorkspaceName> {
-        let root = self.resolved()?;
-        ensure!(directory != root, "{}", is_workspace_root(&root));
-        let child = directory
-            .strip_prefix(&root)
-            .ok()
-            .and_then(|relative| relative.components().next())
-            .with_context(|| not_inside_workspace(directory, &root))?;
-        child.as_os_str().to_string_lossy().parse()
+        let Ok(below_home) = configured.strip_prefix(HOME_SHORTHAND) else {
+            return WorkspaceRoot::at(configured.clone());
+        };
+        WorkspaceRoot::at(home()?.join(below_home))
     }
 }
 
-fn is_workspace_root(root: &Path) -> String {
-    format!(
-        "{} is the Workspace root; cd into a Workspace or pass its name",
-        root.display()
-    )
-}
-
-fn not_inside_workspace(directory: &Path, root: &Path) -> String {
-    format!(
-        "{} is not inside a Workspace under {}; pass a Workspace name",
-        directory.display(),
-        root.display()
-    )
-}
+const HOME_SHORTHAND: &str = "~";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -143,6 +87,14 @@ impl Default for BranchTemplate {
     fn default() -> Self {
         BranchTemplate("{key}".to_string())
     }
+}
+
+fn named_or_current(name: Option<WorkspaceName>, root: &WorkspaceRoot) -> Result<WorkspaceName> {
+    let Some(name) = name else {
+        let directory = std::env::current_dir().context("reading the current directory")?;
+        return root.containing(&directory);
+    };
+    Ok(name)
 }
 
 fn delete_workspace(directory: &Path) -> Result<()> {
@@ -217,7 +169,8 @@ impl Config {
         prompter: &mut dyn Prompter,
     ) -> Result<Resolutions<'_>> {
         let (name, repos) = prompt::new_workspace_arguments(name, repos, &self.repos, prompter)?;
-        let workspace = self.workspace.workspace(&name, branch)?;
+        let root = self.workspace.root()?;
+        let workspace = root.workspace(&name, self.workspace.branch(&name, branch)?);
         let clones = self.repos.select(&repos)?;
         workspace.create(&clones)
     }
@@ -227,22 +180,25 @@ impl Config {
         arguments: &[String],
         prompter: &mut dyn Prompter,
     ) -> Result<Resolutions<'_>> {
-        let (name, repos) = self.split_workspace_name(arguments)?;
-        let name = self.resolve_workspace(name)?;
-        let members = self.workspace.member_names(&name, &self.repos)?;
-        let repos = prompt::added_repos(repos, &name, &members, &self.repos, prompter)?;
-        let workspace = self.workspace.existing(&name, &self.repos)?;
+        let root = self.workspace.root()?;
+        let (name, repos) = self.split_workspace_name(arguments, &root)?;
+        let name = named_or_current(name, &root)?;
+        let members = root.members(&name, &self.repos)?;
+        let repos = prompt::added_repos(repos, &name, &members.names(), &self.repos, prompter)?;
+        let branch = self.workspace.branch(&name, members.branch()?)?;
+        let workspace = root.workspace(&name, branch);
         workspace.extend(&self.repos.select(&repos)?)
     }
 
     fn split_workspace_name(
         &self,
         arguments: &[String],
+        root: &WorkspaceRoot,
     ) -> Result<(Option<WorkspaceName>, Vec<RepoName>)> {
         let Some((first, rest)) = arguments.split_first() else {
             return Ok((None, Vec::new()));
         };
-        if rest.is_empty() && self.names_workspace(first) {
+        if rest.is_empty() && self.names_workspace(first, root) {
             return Ok((Some(first.parse()?), Vec::new()));
         }
         if rest.is_empty() || self.repos.is_registered(first) {
@@ -251,47 +207,41 @@ impl Config {
         Ok((Some(first.parse()?), parse_repo_names(rest)?))
     }
 
-    fn names_workspace(&self, argument: &str) -> bool {
-        !self.repos.is_registered(argument)
-            && argument
-                .parse()
-                .is_ok_and(|name| self.workspace.directory_of(&name).is_ok())
+    fn names_workspace(&self, argument: &str, root: &WorkspaceRoot) -> bool {
+        !self.repos.is_registered(argument) && argument.parse().is_ok_and(|name| root.holds(&name))
     }
 
     pub fn resolve_workspace(&self, name: Option<WorkspaceName>) -> Result<WorkspaceName> {
-        name.map_or_else(|| self.current_workspace(), Ok)
-    }
-
-    fn current_workspace(&self) -> Result<WorkspaceName> {
-        let directory = std::env::current_dir().context("reading the current directory")?;
-        self.workspace.containing(&directory)
+        let Some(name) = name else {
+            return named_or_current(None, &self.workspace.root()?);
+        };
+        Ok(name)
     }
 
     pub fn workspaces(&self) -> Result<Workspaces> {
-        self.workspace.discover(&self.repos)
+        self.workspace.root()?.workspaces(&self.repos)
     }
 
     pub fn status(&self, name: Option<WorkspaceName>) -> Result<Report<RepoStatus>> {
-        let name = self.resolve_workspace(name)?;
-        let members = self.workspace.members(&name, &self.repos)?;
-        Ok(members.status())
+        Ok(self.members(name)?.status())
     }
 
     pub fn sync(&self, name: Option<WorkspaceName>) -> Result<Report<SyncOutcome>> {
-        let name = self.resolve_workspace(name)?;
-        let members = self.workspace.members(&name, &self.repos)?;
-        Ok(members.sync())
+        Ok(self.members(name)?.sync())
     }
 
     pub fn push(&self, name: Option<WorkspaceName>) -> Result<Report<PushOutcome>> {
-        let name = self.resolve_workspace(name)?;
-        let members = self.workspace.members(&name, &self.repos)?;
-        Ok(members.push())
+        Ok(self.members(name)?.push())
+    }
+
+    fn members(&self, name: Option<WorkspaceName>) -> Result<Members> {
+        let root = self.workspace.root()?;
+        root.members(&named_or_current(name, &root)?, &self.repos)
     }
 
     pub fn remove(&self, name: Option<WorkspaceName>, safety: Safety) -> Result<Report<Removal>> {
-        let name = self.resolve_workspace(name)?;
-        let directory = self.workspace.directory_of(&name)?;
+        let root = self.workspace.root()?;
+        let directory = root.directory_of(&named_or_current(name, &root)?)?;
         let members = Members::discover(&directory, &self.repos)?;
         if let Some(refusal) = members.refuse_removal(&directory, safety)? {
             return Ok(refusal);

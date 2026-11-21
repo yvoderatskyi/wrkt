@@ -386,9 +386,29 @@ mod config {
         let run = sandbox.wrkt(&["list"]);
 
         // Assert
-        assert_eq!(
-            run.failure().stderr(),
-            "error: Workspace root 'work' must be an absolute path or start with ~/\n"
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("Workspace root 'work' must be an absolute path or start with ~/"),
+            "{run}"
+        );
+    }
+
+    #[test]
+    fn rejects_root_when_relative_and_workspace_named() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.write_config_rooted_at(Path::new("work"), "");
+
+        // Act
+        let run = sandbox.wrkt(&["which", "PROJ-123"]);
+
+        // Assert
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("Workspace root 'work' must be an absolute path or start with ~/"),
+            "{run}"
         );
     }
 
@@ -402,9 +422,11 @@ mod config {
         let run = sandbox.wrkt(&["list"]);
 
         // Assert
-        assert_eq!(
-            run.failure().stderr(),
-            "error: Workspace root '~bob/work' must be an absolute path or start with ~/\n"
+        assert!(
+            run.failure()
+                .stderr()
+                .contains("Workspace root '~bob/work' must be an absolute path or start with ~/"),
+            "{run}"
         );
     }
 
@@ -476,6 +498,26 @@ mod config {
             "stderr: {}",
             run.stderr()
         );
+    }
+
+    #[test]
+    fn accepts_named_workspace_when_home_unset() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        let xdg_config_home = sandbox.home().join("xdg_config_home");
+
+        // Act
+        let run = sandbox.wrkt_with(
+            &sandbox.home(),
+            &[
+                ("XDG_CONFIG_HOME", xdg_config_home.to_str().unwrap()),
+                ("HOME", ""),
+            ],
+            &["which", "PROJ-123"],
+        );
+
+        // Assert
+        assert_eq!(run.success().stdout(), "PROJ-123\n");
     }
 
     #[test]
