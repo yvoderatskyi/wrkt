@@ -1,6 +1,6 @@
 # Coding standards
 
-Reviewing Rust: load the `rust-skills` skill and check the diff against its rules. The rules below, an ADR or the spec's Implementation Decisions win over a conflicting skill rule.
+Reviewing Rust: load the `rust-skills` skill, read the rule files for every category the diff touches, and list the files you read in your report. The rules below, an ADR or the spec's Implementation Decisions win over a conflicting skill rule.
 
 `scripts/check.sh` runs on every commit through `.githooks/pre-commit`. It enforces `cargo fmt`, clippy pedantic with warnings denied, and the rules marked _(checked)_ below. Spend review attention on the rest.
 

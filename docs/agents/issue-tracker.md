@@ -29,6 +29,10 @@ Used by `/wayfinder`. The **map** is a file with one **child** file per ticket.
 - **Claim**: set `Status: claimed` and save before any work.
 - **Resolve**: append the answer under an `## Answer` heading, set `Status: resolved`, then append a context pointer (gist + link) to the map's Decisions-so-far in `map.md`.
 
+## Work without a ticket
+
+Work that arrives with no ticket file (an architecture candidate, a request made in conversation) gets one under `.scratch/<feature-slug>/issues/` before any code changes. For a refactor, the ticket carries a **Behaviour that must not change** list; the Spec review checks the diff against it.
+
 ## When work is done
 
-In the same commit as the work, close every ticket it finishes: set its `**Status:**` line to `done` and tick its acceptance checkboxes. A spec's tickets are all `done` before the spec counts as implemented.
+`.scratch/` is git-ignored, so ticket files are local only and never part of a commit. Before committing the work, close every ticket it finishes: set its `**Status:**` line to `done` and tick its acceptance checkboxes. When a spec's tickets are all `done`, set the spec's own `Status:` line to `done` too.
