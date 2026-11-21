@@ -87,7 +87,7 @@ wrkt reads `$XDG_CONFIG_HOME/wrkt/config.toml`, or `~/.config/wrkt/config.toml` 
 
 ```toml
 [workspace]
-# Workspace root. Defaults to ~/wrkt. Use an absolute path: ~ is not expanded.
+# Workspace root. Defaults to ~/wrkt. An absolute path, or one starting with ~/.
 root = "/Users/you/work/issues"
 # Branch template. {key} is replaced by the Workspace name. Defaults to "{key}".
 # Override it for one Workspace with `wrkt new --branch`.

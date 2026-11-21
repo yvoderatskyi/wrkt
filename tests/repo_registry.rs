@@ -301,6 +301,8 @@ mod repo_rm {
 }
 
 mod config {
+    use std::path::Path;
+
     use super::support::Sandbox;
 
     #[test]
@@ -353,6 +355,57 @@ mod config {
 
         // Assert
         assert!(sandbox.home().join("wrkt/PROJ-123/api").is_dir());
+    }
+
+    #[test]
+    fn creates_workspaces_under_home_when_root_starts_with_tilde() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.write_config_rooted_at(Path::new("~/work"), "");
+        sandbox.registered_repo("api");
+
+        // Act
+        let run = sandbox.wrkt(&["new", "PROJ-123", "api"]);
+
+        // Assert
+        run.success();
+        let worktree = sandbox.home().join("work/PROJ-123/api");
+        assert_eq!(
+            sandbox.git(&worktree, &["branch", "--show-current"]),
+            "PROJ-123"
+        );
+    }
+
+    #[test]
+    fn rejects_root_when_relative() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.write_config_rooted_at(Path::new("work"), "");
+
+        // Act
+        let run = sandbox.wrkt(&["list"]);
+
+        // Assert
+        assert_eq!(
+            run.failure().stderr(),
+            "error: Workspace root 'work' must be an absolute path or start with ~/\n"
+        );
+    }
+
+    #[test]
+    fn rejects_root_when_tilde_names_another_user() {
+        // Arrange
+        let sandbox = Sandbox::new();
+        sandbox.write_config_rooted_at(Path::new("~bob/work"), "");
+
+        // Act
+        let run = sandbox.wrkt(&["list"]);
+
+        // Assert
+        assert_eq!(
+            run.failure().stderr(),
+            "error: Workspace root '~bob/work' must be an absolute path or start with ~/\n"
+        );
     }
 
     #[test]

@@ -79,7 +79,18 @@ impl WorkspaceRoot {
     }
 
     fn configured_or_default(&self) -> Result<PathBuf> {
-        self.0.clone().map_or_else(|| Ok(home()?.join("wrkt")), Ok)
+        let Some(configured) = &self.0 else {
+            return Ok(home()?.join("wrkt"));
+        };
+        if let Ok(below_home) = configured.strip_prefix("~") {
+            return Ok(home()?.join(below_home));
+        }
+        ensure!(
+            configured.is_absolute(),
+            "Workspace root '{}' must be an absolute path or start with ~/",
+            configured.display()
+        );
+        Ok(configured.clone())
     }
 
     fn resolved(&self) -> Result<PathBuf> {
